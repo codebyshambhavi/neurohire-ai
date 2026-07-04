@@ -55,8 +55,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
             Unlock unlimited interviews and full multimodal analysis.
           </p>
-          <Button size="sm" className="mt-3 w-full" render={<Link href="/#pricing" />}>
-            View plans
+          <Button size="sm" className="mt-3 w-full" asChild>
+            <Link href="/#pricing">View plans</Link>
           </Button>
         </div>
 

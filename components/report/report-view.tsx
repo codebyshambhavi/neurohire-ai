@@ -55,7 +55,7 @@ export function ReportView() {
       <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
         <GlassCard className="flex flex-col items-center justify-center gap-4 p-8">
           <span className="text-sm font-medium text-muted-foreground">Overall NeuroScore</span>
-          <ScoreRing value={82} max={100} size={168} label="/ 100" />
+          <ScoreRing value={82} size={168} suffix="/ 100" />
           <div className="flex items-center gap-2 text-sm text-success">
             <Sparkles className="size-4" />
             <span>Strong readiness — top 18% of candidates</span>

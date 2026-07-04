@@ -72,9 +72,11 @@ export function AppShell({
             <Button variant="outline" size="icon" aria-label="Notifications">
               <Bell className="size-4" />
             </Button>
-            <Button size="lg" className="hidden sm:inline-flex" render={<Link href="/interview/create" />}>
-              <Plus className="size-4" />
-              New Interview
+            <Button size="lg" className="hidden sm:inline-flex" asChild>
+              <Link href="/interview/create">
+                <Plus className="size-4" />
+                New Interview
+              </Link>
             </Button>
             <Link
               href="/profile"

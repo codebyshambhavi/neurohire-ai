@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
@@ -110,7 +109,6 @@ const sections = [
 ] as const
 
 export function CreateInterview() {
-  const router = useRouter()
   const [role, setRole] = useState('ml')
   const [exp, setExp] = useState('pro')
   const [diff, setDiff] = useState('intermediate')
@@ -178,9 +176,11 @@ export function CreateInterview() {
             </div>
           </div>
 
-          <Button size="lg" className="mt-5 h-11 w-full" render={<Link href="/interview" />}>
-            Begin Interview
-            <ArrowRight className="size-4" />
+          <Button size="lg" className="mt-5 h-11 w-full" asChild>
+            <Link href="/interview">
+              Begin Interview
+              <ArrowRight className="size-4" />
+            </Link>
           </Button>
           <p className="mt-3 text-center text-xs text-muted-foreground">
             Camera and microphone access will be requested.

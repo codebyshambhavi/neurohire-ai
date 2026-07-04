@@ -29,12 +29,14 @@ export default function DashboardPage() {
             answer structure and clearer delivery.
           </p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Button size="lg" className="h-11" render={<Link href="/interview/create" />}>
-              Start new interview
-              <ArrowRight className="size-4" />
+            <Button size="lg" className="h-11" asChild>
+              <Link href="/interview/create">
+                Start new interview
+                <ArrowRight className="size-4" />
+              </Link>
             </Button>
-            <Button variant="outline" size="lg" className="h-11" render={<Link href="/report" />}>
-              View last report
+            <Button variant="outline" size="lg" className="h-11" asChild>
+              <Link href="/report">View last report</Link>
             </Button>
           </div>
         </div>

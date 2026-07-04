@@ -54,9 +54,9 @@ export function Pricing() {
                 <Button
                   className="mt-8 h-11 w-full"
                   variant={plan.highlighted ? 'default' : 'outline'}
-                  render={<Link href="/signup" />}
+                  asChild
                 >
-                  {plan.cta}
+                  <Link href="/signup">{plan.cta}</Link>
                 </Button>
               </div>
             </Reveal>

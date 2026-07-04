@@ -49,11 +49,11 @@ export function Navbar() {
         </div>
 
         <div className="hidden items-center gap-2 md:flex">
-          <Button variant="ghost" size="lg" render={<Link href="/login" />}>
-            Sign in
+          <Button variant="ghost" size="lg" asChild>
+            <Link href="/login">Sign in</Link>
           </Button>
-          <Button size="lg" render={<Link href="/signup" />}>
-            Start Interview
+          <Button size="lg" asChild>
+            <Link href="/interview/create">Start Interview</Link>
           </Button>
         </div>
 
@@ -81,10 +81,12 @@ export function Navbar() {
             </a>
           ))}
           <div className="mt-1 flex flex-col gap-2 border-t border-border pt-2">
-            <Button variant="outline" render={<Link href="/login" />}>
-              Sign in
+            <Button variant="outline" asChild>
+              <Link href="/login">Sign in</Link>
             </Button>
-            <Button render={<Link href="/signup" />}>Start Interview</Button>
+            <Button asChild>
+              <Link href="/interview/create">Start Interview</Link>
+            </Button>
           </div>
         </div>
       )}

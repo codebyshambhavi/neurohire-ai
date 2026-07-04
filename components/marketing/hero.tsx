@@ -55,18 +55,17 @@ export function Hero() {
             transition={{ duration: 0.7, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
             className="mt-8 flex flex-col gap-3 sm:flex-row"
           >
-            <Button size="lg" className="h-12 px-6 text-[15px]" render={<Link href="/interview" />}>
-              Start Interview
-              <ArrowRight className="size-4" />
+            <Button size="lg" className="h-12 px-6 text-[15px]" asChild>
+              <Link href="/interview/create">
+                Start Interview
+                <ArrowRight className="size-4" />
+              </Link>
             </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              className="h-12 px-6 text-[15px]"
-              render={<Link href="/dashboard" />}
-            >
-              <Play className="size-4" />
-              View Demo
+            <Button variant="outline" size="lg" className="h-12 px-6 text-[15px]" asChild>
+              <Link href="/dashboard">
+                <Play className="size-4" />
+                View Demo
+              </Link>
             </Button>
           </motion.div>
 

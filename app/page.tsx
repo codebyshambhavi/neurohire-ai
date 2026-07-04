@@ -40,17 +40,14 @@ export default function LandingPage() {
                 improve.
               </p>
               <div className="relative mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-                <Button size="lg" className="h-12 px-6 text-[15px]" render={<Link href="/interview" />}>
-                  Start Interview
-                  <ArrowRight className="size-4" />
+                <Button size="lg" className="h-12 px-6 text-[15px]" asChild>
+                  <Link href="/interview/create">
+                    Start Interview
+                    <ArrowRight className="size-4" />
+                  </Link>
                 </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="h-12 px-6 text-[15px]"
-                  render={<Link href="/signup" />}
-                >
-                  Create free account
+                <Button variant="outline" size="lg" className="h-12 px-6 text-[15px]" asChild>
+                  <Link href="/signup">Create free account</Link>
                 </Button>
               </div>
             </div>
