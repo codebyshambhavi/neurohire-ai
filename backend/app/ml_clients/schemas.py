@@ -26,6 +26,21 @@ class AnswerMindResult:
 
 
 @dataclass
+class SpeechMindInput:
+    transcript: str
+    duration_seconds: float | None = None
+
+
+@dataclass
+class SpeechMindResult:
+    pace_score: int
+    confidence_score: int
+    filler_score: int
+    delivery_score: int
+    feedback: str
+
+
+@dataclass
 class SpeechIQInput:
     audio_url: str
 

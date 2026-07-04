@@ -5,7 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ml_clients.answermind_client import AnswerMindClient, AnswerMindClientError
-from app.ml_clients.schemas import AnswerMindInput
+from app.ml_clients.schemas import AnswerMindInput, SpeechMindInput
+from app.ml_clients.speechmind_client import SpeechMindClient, SpeechMindClientError
 from app.models.answer import Answer
 from app.models.enums import InterviewStatus
 from app.models.interview import Interview
@@ -17,6 +18,7 @@ from app.services import report_service
 logger = logging.getLogger(__name__)
 
 _answermind_client = AnswerMindClient()
+_speechmind_client = SpeechMindClient()
 
 
 def get_next_unanswered_question(interview: Interview) -> tuple[Question | None, int]:
@@ -62,6 +64,15 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
         except AnswerMindClientError:
             answer.answermind_analysis = {"status": "failed"}
             logger.warning("AnswerMind analysis failed; answer submission will continue.", exc_info=True)
+
+        try:
+            speech_result = _speechmind_client.analyze(
+                SpeechMindInput(transcript=payload.transcript, duration_seconds=None)
+            )
+            answer.speechiq_analysis = speech_result.__dict__
+        except SpeechMindClientError:
+            answer.speechiq_analysis = {"status": "failed"}
+            logger.warning("SpeechMind analysis failed; answer submission will continue.", exc_info=True)
 
     db.commit()
     db.refresh(answer)

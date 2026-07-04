@@ -13,6 +13,13 @@ SCORE_FIELDS = (
     ("completeness", "Completeness"),
 )
 
+SPEECH_FIELDS = (
+    ("pace_score", "Speaking Pace"),
+    ("confidence_score", "Confidence"),
+    ("filler_score", "Filler Control"),
+    ("delivery_score", "Delivery"),
+)
+
 
 def get_report_for_interview(db: Session, interview_id: str) -> Report | None:
     stmt = select(Report).where(Report.interview_id == interview_id)
@@ -21,6 +28,8 @@ def get_report_for_interview(db: Session, interview_id: str) -> Report | None:
 
 def populate_answermind_report(report: Report, interview: Interview) -> None:
     analyses: list[dict] = []
+    speech_analyses: list[dict] = []
+    speech_complete = True
 
     for question in interview.questions:
         answer = question.answer
@@ -29,10 +38,16 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
             return
 
         analysis = answer.answermind_analysis
-        if not _is_complete_analysis(analysis):
+        if not _is_complete_analysis(analysis, SCORE_FIELDS):
             _set_pending(report)
             return
         analyses.append(analysis)
+
+        speech_analysis = answer.speechiq_analysis
+        if _is_complete_analysis(speech_analysis, SPEECH_FIELDS):
+            speech_analyses.append(speech_analysis)
+        else:
+            speech_complete = False
 
     if not analyses:
         _set_pending(report)
@@ -42,17 +57,34 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
         field: round(sum(analysis[field] for analysis in analyses) / len(analyses))
         for field, _ in SCORE_FIELDS
     }
-    report.neuroscore = round(sum(averages.values()) / len(averages))
+    speech_averages = (
+        {
+            field: round(sum(analysis[field] for analysis in speech_analyses) / len(speech_analyses))
+            for field, _ in SPEECH_FIELDS
+        }
+        if speech_complete and speech_analyses
+        else {}
+    )
+    all_scores = [*averages.values(), *speech_averages.values()]
+    report.neuroscore = round(sum(all_scores) / len(all_scores))
     report.radar = [
         {"metric": label, "value": averages[field]}
         for field, label in SCORE_FIELDS
+    ] + [
+        {"metric": label, "value": speech_averages[field]}
+        for field, label in SPEECH_FIELDS
+        if field in speech_averages
     ]
     report.breakdown = {
         "answermind": [
             {"label": label, "value": averages[field]}
             for field, label in SCORE_FIELDS
         ],
-        "speechiq": [],
+        "speechiq": [
+            {"label": label, "value": speech_averages[field]}
+            for field, label in SPEECH_FIELDS
+            if field in speech_averages
+        ],
         "visionnet": [],
     }
     report.feedback = {
@@ -61,18 +93,18 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
             for field, label in SCORE_FIELDS
             if averages[field] >= 75
         ],
-        "improve": _unique_feedback(analyses),
+        "improve": _unique_feedback([*analyses, *speech_analyses]),
         "practice": [],
     }
     report.status = "ready"
 
 
-def _is_complete_analysis(analysis: dict | None) -> bool:
+def _is_complete_analysis(analysis: dict | None, fields: tuple[tuple[str, str], ...]) -> bool:
     if not isinstance(analysis, dict) or analysis.get("status") == "failed":
         return False
     return all(
         isinstance(analysis.get(field), int) and 0 <= analysis[field] <= 100
-        for field, _ in SCORE_FIELDS
+        for field, _ in fields
     ) and isinstance(analysis.get("feedback"), str)
 
 
