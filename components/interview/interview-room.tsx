@@ -1,0 +1,381 @@
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  Mic,
+  MicOff,
+  Video as VideoIcon,
+  VideoOff,
+  PhoneOff,
+  Sparkles,
+  ChevronRight,
+  Loader2,
+  Radio,
+} from 'lucide-react'
+import { interviewQuestions, liveSignals } from '@/lib/mock-data'
+import { Waveform } from '@/components/interview/waveform'
+import { NeuralViz } from '@/components/neural-viz'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
+
+type Phase = 'asking' | 'listening' | 'analyzing'
+
+const toneClass: Record<string, string> = {
+  primary: 'bg-primary',
+  accent: 'bg-accent',
+  success: 'bg-success',
+  chart4: 'bg-chart-4',
+}
+
+export function InterviewRoom() {
+  const router = useRouter()
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  const [index, setIndex] = useState(0)
+  const [phase, setPhase] = useState<Phase>('asking')
+  const [micOn, setMicOn] = useState(true)
+  const [camOn, setCamOn] = useState(true)
+  const [elapsed, setElapsed] = useState(0)
+  const [camReady, setCamReady] = useState(false)
+  const [camError, setCamError] = useState(false)
+
+  const question = interviewQuestions[index]
+  const isLast = index === interviewQuestions.length - 1
+
+  // Camera
+  useEffect(() => {
+    let stream: MediaStream | null = null
+    async function start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          setCamReady(true)
+        }
+      } catch {
+        setCamError(true)
+      }
+    }
+    if (camOn) start()
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop())
+    }
+  }, [camOn])
+
+  // Timer
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Phase machine: ask -> listen -> analyze
+  useEffect(() => {
+    if (phase === 'asking') {
+      const t = setTimeout(() => setPhase('listening'), 2600)
+      return () => clearTimeout(t)
+    }
+  }, [phase, index])
+
+  const advance = useCallback(() => {
+    setPhase('analyzing')
+    setTimeout(() => {
+      if (isLast) {
+        router.push('/report')
+      } else {
+        setIndex((i) => i + 1)
+        setPhase('asking')
+      }
+    }, 1800)
+  }, [isLast, router])
+
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
+  const ss = String(elapsed % 60).padStart(2, '0')
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      {/* Top bar */}
+      <header className="flex h-16 items-center justify-between border-b border-border px-4 md:px-6">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
+            <Radio className="size-3 animate-pulse" />
+            REC
+          </span>
+          <span className="font-mono text-sm text-muted-foreground">
+            {mm}:{ss}
+          </span>
+        </div>
+        <Badge variant="muted">
+          Question {index + 1} of {interviewQuestions.length}
+        </Badge>
+        <div className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
+          <Sparkles className="size-4 text-primary" />
+          ML Engineer · Intermediate
+        </div>
+      </header>
+
+      {/* Progress */}
+      <div className="h-1 w-full bg-muted">
+        <motion.div
+          className="h-full bg-primary"
+          animate={{ width: `${((index + 1) / interviewQuestions.length) * 100}%` }}
+          transition={{ duration: 0.5 }}
+        />
+      </div>
+
+      <div className="grid flex-1 grid-cols-1 gap-4 p-4 md:p-6 lg:grid-cols-3">
+        {/* AI interviewer */}
+        <div className="relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card/50 lg:col-span-2">
+          <div className="relative flex flex-1 flex-col items-center justify-center p-8">
+            <div className="pointer-events-none absolute inset-0 opacity-30">
+              <div className="absolute left-1/2 top-1/2 size-[380px] -translate-x-1/2 -translate-y-1/2">
+                <NeuralViz />
+              </div>
+            </div>
+
+            {/* AI orb */}
+            <div className="relative">
+              <div
+                className={cn(
+                  'flex size-32 items-center justify-center rounded-full bg-primary/15 ring-1 ring-primary/30 transition-all md:size-40',
+                  phase === 'asking' && 'animate-pulse-ring',
+                )}
+              >
+                <div className="flex size-20 items-center justify-center rounded-full bg-primary/25 md:size-24">
+                  <Sparkles className="size-9 text-primary md:size-11" />
+                </div>
+              </div>
+              {phase === 'asking' && (
+                <span className="absolute -bottom-1 left-1/2 h-8 w-24 -translate-x-1/2">
+                  <Waveform active className="h-full" />
+                </span>
+              )}
+            </div>
+
+            <p className="relative mt-8 text-sm font-medium text-primary">NeuroHire Interviewer</p>
+
+            {/* Question */}
+            <div className="relative mt-4 min-h-[7rem] max-w-xl">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={question.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  transition={{ duration: 0.4 }}
+                  className="text-center"
+                >
+                  <Badge className="mb-3">{question.type}</Badge>
+                  <p className="text-balance text-xl font-medium leading-relaxed text-foreground md:text-2xl">
+                    {question.text}
+                  </p>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Status footer */}
+          <div className="flex items-center justify-center gap-2 border-t border-border py-3 text-sm text-muted-foreground">
+            {phase === 'asking' && (
+              <>
+                <Loader2 className="size-4 animate-spin text-primary" />
+                Interviewer is speaking...
+              </>
+            )}
+            {phase === 'listening' && (
+              <>
+                <span className="flex size-2 items-center justify-center">
+                  <span className="size-2 animate-ping rounded-full bg-success" />
+                </span>
+                Listening to your answer — take your time
+              </>
+            )}
+            {phase === 'analyzing' && (
+              <>
+                <Loader2 className="size-4 animate-spin text-primary" />
+                Analyzing your response across 120+ signals...
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Right column: candidate + live signals */}
+        <div className="flex flex-col gap-4">
+          {/* Candidate video */}
+          <div className="relative aspect-video overflow-hidden rounded-2xl border border-border bg-muted">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={cn(
+                'size-full object-cover [transform:scaleX(-1)]',
+                (!camOn || !camReady) && 'hidden',
+              )}
+            />
+            {(!camOn || camError || !camReady) && (
+              <div className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                {camError ? (
+                  <>
+                    <VideoOff className="size-8" />
+                    <p className="px-4 text-center text-xs">
+                      Camera unavailable. You can still continue the interview.
+                    </p>
+                  </>
+                ) : !camOn ? (
+                  <>
+                    <VideoOff className="size-8" />
+                    <p className="text-xs">Camera off</p>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="size-6 animate-spin" />
+                    <p className="text-xs">Connecting camera...</p>
+                  </>
+                )}
+              </div>
+            )}
+            <span className="absolute bottom-2 left-2 rounded-md bg-background/70 px-2 py-0.5 text-xs font-medium text-foreground backdrop-blur">
+              You
+            </span>
+            {micOn && camReady && (
+              <span className="absolute bottom-2 right-2 h-6 w-16 opacity-80">
+                <Waveform active={phase === 'listening'} className="h-full" />
+              </span>
+            )}
+          </div>
+
+          {/* Live signals */}
+          <div className="flex-1 rounded-2xl border border-border bg-card/50 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Live Signals</h3>
+              <Badge variant="success">
+                <span className="mr-1 size-1.5 rounded-full bg-success" />
+                Live
+              </Badge>
+            </div>
+            <div className="mt-4 flex flex-col gap-4">
+              {liveSignals.map((s) => (
+                <LiveSignal key={s.label} label={s.label} base={s.value} tone={s.tone} active={phase === 'listening'} />
+              ))}
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="flex items-center justify-between gap-2 rounded-2xl border border-border bg-card/50 p-3">
+            <div className="flex gap-2">
+              <ControlButton
+                on={micOn}
+                onClick={() => setMicOn((v) => !v)}
+                onIcon={<Mic className="size-5" />}
+                offIcon={<MicOff className="size-5" />}
+                label="Toggle microphone"
+              />
+              <ControlButton
+                on={camOn}
+                onClick={() => setCamOn((v) => !v)}
+                onIcon={<VideoIcon className="size-5" />}
+                offIcon={<VideoOff className="size-5" />}
+                label="Toggle camera"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                onClick={advance}
+                disabled={phase !== 'listening'}
+                size="lg"
+                className="h-11"
+              >
+                {isLast ? 'Finish' : 'Next'}
+                <ChevronRight className="size-4" />
+              </Button>
+              <button
+                type="button"
+                onClick={() => router.push('/report')}
+                className="flex size-11 items-center justify-center rounded-lg bg-destructive text-destructive-foreground transition-opacity hover:opacity-90"
+                aria-label="End interview"
+              >
+                <PhoneOff className="size-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ControlButton({
+  on,
+  onClick,
+  onIcon,
+  offIcon,
+  label,
+}: {
+  on: boolean
+  onClick: () => void
+  onIcon: React.ReactNode
+  offIcon: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={on}
+      className={cn(
+        'flex size-11 items-center justify-center rounded-lg transition-colors',
+        on
+          ? 'bg-muted text-foreground hover:bg-muted/70'
+          : 'bg-destructive/15 text-destructive hover:bg-destructive/25',
+      )}
+    >
+      {on ? onIcon : offIcon}
+    </button>
+  )
+}
+
+function LiveSignal({
+  label,
+  base,
+  tone,
+  active,
+}: {
+  label: string
+  base: number
+  tone: string
+  active: boolean
+}) {
+  const [value, setValue] = useState(base)
+
+  useEffect(() => {
+    if (!active) return
+    const id = setInterval(() => {
+      setValue((v) => {
+        const next = v + (Math.random() - 0.5) * 8
+        return Math.max(55, Math.min(97, Math.round(next)))
+      })
+    }, 900)
+    return () => clearInterval(id)
+  }, [active])
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium text-foreground">{value}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <motion.div
+          className={cn('h-full rounded-full', toneClass[tone])}
+          animate={{ width: `${value}%` }}
+          transition={{ duration: 0.8 }}
+        />
+      </div>
+    </div>
+  )
+}
