@@ -39,14 +39,14 @@ backend/
 **Design principles applied:**
 - **Schemas mirror the frontend exactly.** Every Pydantic response model in `app/schemas/` is shaped to match the corresponding type in `frontend/lib/mock-data.ts` (`dashboardStats`, `reportRadar`, `reportBreakdown`, `feedback`, etc.), so wiring up the frontend later requires no remapping.
 - **Services own logic, routes stay thin.** Route handlers in `api/v1/` only handle HTTP concerns (auth, validation, status codes) and delegate to `services/`.
-- **ML is a seam, not a shortcut.** `ml_clients/` defines the exact input/output contract each module will use, but every method raises `NotImplementedError`. Callers (see `session_service.submit_answer`) catch this and leave analysis as `"pending"` rather than fabricating scores. This keeps the dashboard and reports **honest**: a fresh deployment correctly shows empty/pending states, not fake numbers.
+- **ML is a seam, not a shortcut.** `ml_clients/` defines typed service boundaries. AnswerMind uses HTTP and isolates failures; the remaining module stubs still fail explicitly rather than fabricating scores.
 - **No fake data, anywhere.** The dashboard aggregates real rows from the database. Until Phase 6 (NeuroCore) ships, most dashboard fields will legitimately be empty — that's correct behavior, not a bug.
 
-## ML client interfaces (Phase 1 stubs)
+## ML client interfaces
 
 | Client | Contract file | Real implementation lands in |
 |---|---|---|
-| `AnswerMindClient` | `ml_clients/answermind_client.py` | Phase 3 |
+| `AnswerMindClient` | `ml_clients/answermind_client.py` | Implemented via HTTP |
 | `SpeechIQClient` | `ml_clients/speechiq_client.py` | Phase 4 |
 | `VisionNetClient` | `ml_clients/visionnet_client.py` | Phase 5 |
 | `NeuroCoreClient` | `ml_clients/neurocore_client.py` | Phase 6 |
@@ -127,8 +127,8 @@ CORS is already configured for `http://localhost:3000` by default
 - Signup → login → `/auth/me`, including duplicate-email (409), wrong-password (401), and unauthenticated (401) cases
 - Interview creation seeds a real question set from the static question bank (`services/question_bank.py`) based on role/difficulty/type
 - Full session flow: fetch next question → submit answer → repeat → session reports `is_complete` → finish → pending `Report` created
-- Answer submission with a transcript correctly attempts `AnswerMindClient.analyze()`, catches the expected `NotImplementedError`, and stores the answer with `analysis_status: "pending"`
-- `GET /reports/{id}` returns a well-formed pending report (`neuroscore: null`, empty radar/breakdown/feedback) rather than erroring
+- Answer submission sends transcripts to AnswerMind and stores returned analysis JSON; ML failures return `analysis_status: "failed"` without failing submission
+- Finished sessions aggregate complete AnswerMind results into reports; incomplete analysis remains pending with empty score fields
 - `GET /dashboard/summary` returns real counts and honest empty states — no placeholder scores
 - Cross-user access returns 404/401 rather than leaking another user's data
 

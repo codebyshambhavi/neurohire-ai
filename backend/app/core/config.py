@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # --- ML Engine ---
-    ML_ENGINE_BASE_URL: str = "http://localhost:8500"
+    ML_ENGINE_URL: str = "http://127.0.0.1:8001"
     ML_ENGINE_TIMEOUT_SECONDS: int = 30
 
     @property

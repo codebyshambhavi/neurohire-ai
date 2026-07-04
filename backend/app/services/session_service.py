@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ml_clients.answermind_client import AnswerMindClient
+from app.ml_clients.answermind_client import AnswerMindClient, AnswerMindClientError
 from app.ml_clients.schemas import AnswerMindInput
 from app.models.answer import Answer
 from app.models.enums import InterviewStatus
@@ -12,6 +12,7 @@ from app.models.interview import Interview
 from app.models.question import Question
 from app.models.report import Report, ReportStatus
 from app.schemas.answer import SubmitAnswerRequest
+from app.services import report_service
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,7 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
     )
     db.add(answer)
 
-    # Kick off AnswerMind analysis if a transcript is available. The client is
-    # a Phase 1 interface stub, so NotImplementedError is expected until the
-    # ml-engine module ships — analysis simply stays pending until then.
+    # Analysis failures are stored as status metadata and never roll back the answer.
     if payload.transcript:
         try:
             result = _answermind_client.analyze(
@@ -60,8 +59,9 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
                 )
             )
             answer.answermind_analysis = result.__dict__
-        except NotImplementedError:
-            logger.info("AnswerMind analysis deferred (client not yet implemented).")
+        except AnswerMindClientError:
+            answer.answermind_analysis = {"status": "failed"}
+            logger.warning("AnswerMind analysis failed; answer submission will continue.", exc_info=True)
 
     db.commit()
     db.refresh(answer)
@@ -79,10 +79,13 @@ def finish_interview(db: Session, interview: Interview) -> Report:
 
     existing = db.scalars(select(Report).where(Report.interview_id == interview.id)).first()
     if existing:
+        report_service.populate_answermind_report(existing, interview)
         db.commit()
+        db.refresh(existing)
         return existing
 
     report = Report(interview_id=interview.id, status=ReportStatus.PENDING)
+    report_service.populate_answermind_report(report, interview)
     db.add(report)
     db.commit()
     db.refresh(report)
