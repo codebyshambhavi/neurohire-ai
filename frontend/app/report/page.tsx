@@ -7,10 +7,16 @@ export const metadata: Metadata = {
   description: "Detailed multimodal AI analysis of your interview performance.",
 }
 
-export default function ReportPage() {
+export default async function ReportPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ interviewId?: string }>
+}) {
+  const { interviewId } = await searchParams
+
   return (
     <AppShell>
-      <ReportView />
+      <ReportView interviewId={interviewId ?? null} />
     </AppShell>
   )
 }
