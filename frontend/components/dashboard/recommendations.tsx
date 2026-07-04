@@ -1,8 +1,8 @@
 import { Sparkles, ArrowRight } from 'lucide-react'
-import { recommendations } from '@/lib/mock-data'
+import type { Recommendation } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 
-export function Recommendations() {
+export function Recommendations({ recommendations }: { recommendations: Recommendation[] }) {
   return (
     <div className="rounded-2xl border border-border bg-card/50 p-6">
       <div className="flex items-center gap-2">
@@ -28,6 +28,9 @@ export function Recommendations() {
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{rec.detail}</p>
           </div>
         ))}
+        {recommendations.length === 0 && (
+          <p className="text-sm text-muted-foreground">Recommendations will appear after analysis is complete.</p>
+        )}
       </div>
 
       <button

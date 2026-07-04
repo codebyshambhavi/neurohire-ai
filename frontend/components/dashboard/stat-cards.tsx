@@ -2,14 +2,14 @@
 
 import { motion } from 'framer-motion'
 import { TrendingUp, TrendingDown, Users, Gauge, Sparkles, Clock } from 'lucide-react'
-import { dashboardStats } from '@/lib/mock-data'
+import type { DashboardStat } from '@/lib/api'
 
 const icons = [Users, Gauge, Sparkles, Clock]
 
-export function StatCards() {
+export function StatCards({ stats }: { stats: DashboardStat[] }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {dashboardStats.map((stat, i) => {
+      {stats.map((stat, i) => {
         const Icon = icons[i]
         const TrendIcon = stat.trend === 'up' ? TrendingUp : TrendingDown
         return (
