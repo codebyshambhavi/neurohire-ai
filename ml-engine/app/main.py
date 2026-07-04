@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.answermind.router import router as answermind_router
 from app.speechmind.router import router as speechmind_router
+from app.visionmind.router import router as visionmind_router
 
 
 app = FastAPI(
@@ -11,3 +12,4 @@ app = FastAPI(
 )
 app.include_router(answermind_router)
 app.include_router(speechmind_router)
+app.include_router(visionmind_router)
