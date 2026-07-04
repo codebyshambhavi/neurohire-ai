@@ -1,0 +1,1 @@
+"""SpeechMind deterministic delivery analysis."""

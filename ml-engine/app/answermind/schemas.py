@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 from pydantic import BaseModel, Field, field_validator
-=======
-from pydantic import BaseModel, Field
->>>>>>> answermind-engine
 
 
 class AnswerMindAnalyzeRequest(BaseModel):
@@ -10,7 +6,6 @@ class AnswerMindAnalyzeRequest(BaseModel):
     question_type: str
     transcript: str
 
-<<<<<<< HEAD
     @field_validator("question_text", "question_type", "transcript")
     @classmethod
     def reject_blank_text(cls, value: str) -> str:
@@ -18,8 +13,6 @@ class AnswerMindAnalyzeRequest(BaseModel):
             raise ValueError("must not be blank")
         return value
 
-=======
->>>>>>> answermind-engine
 
 class AnswerMindAnalyzeResponse(BaseModel):
     relevance: int = Field(ge=0, le=100)
