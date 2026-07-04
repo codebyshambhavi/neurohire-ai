@@ -9,19 +9,40 @@ import { Logo } from '@/components/logo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { api, AUTH_TOKEN_STORAGE_KEY } from '@/lib/api'
 
 export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const isLogin = mode === 'login'
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
-    // Mock auth — redirect to dashboard after a short delay.
-    setTimeout(() => router.push('/dashboard'), 900)
+    setError(null)
+
+    const formData = new FormData(e.currentTarget)
+    const email = String(formData.get('email') ?? '')
+    const password = String(formData.get('password') ?? '')
+
+    try {
+      const response = isLogin
+        ? await api.login({ email, password })
+        : await api.signup({
+            email,
+            password,
+            full_name: String(formData.get('name') ?? ''),
+          })
+
+      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, response.access_token)
+      router.push('/dashboard')
+    } catch (caughtError: unknown) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Authentication failed. Please try again.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -87,6 +108,12 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
                 </button>
               </div>
             </div>
+
+            {error && (
+              <p className="text-sm text-destructive" role="alert" aria-live="polite">
+                {error}
+              </p>
+            )}
 
             <Button type="submit" size="lg" className="mt-1 h-11 w-full" disabled={loading}>
               {loading ? (
