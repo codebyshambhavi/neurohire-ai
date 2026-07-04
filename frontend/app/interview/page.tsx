@@ -6,6 +6,12 @@ export const metadata: Metadata = {
   description: 'Your live AI-powered mock interview session.',
 }
 
-export default function InterviewPage() {
-  return <InterviewRoom />
+export default async function InterviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ interviewId?: string }>
+}) {
+  const { interviewId } = await searchParams
+
+  return <InterviewRoom interviewId={interviewId ?? null} />
 }

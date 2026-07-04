@@ -1,18 +1,18 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { skillBreakdown } from '@/lib/mock-data'
+import type { SkillBreakdownItem } from '@/lib/api'
 
 const colors = ['bg-primary', 'bg-accent', 'bg-success', 'bg-chart-4']
 
-export function SkillBreakdown() {
+export function SkillBreakdown({ skills }: { skills: SkillBreakdownItem[] }) {
   return (
     <div className="rounded-2xl border border-border bg-card/50 p-6">
       <h3 className="text-base font-semibold text-foreground">Skill Breakdown</h3>
       <p className="text-sm text-muted-foreground">Your current competency profile</p>
 
       <div className="mt-6 flex flex-col gap-5">
-        {skillBreakdown.map((s, i) => (
+        {skills.map((s, i) => (
           <div key={s.skill}>
             <div className="mb-2 flex items-center justify-between text-sm">
               <span className="text-foreground/90">{s.skill}</span>
@@ -29,6 +29,9 @@ export function SkillBreakdown() {
             </div>
           </div>
         ))}
+        {skills.length === 0 && (
+          <p className="text-sm text-muted-foreground">Skill analytics will appear after a scored interview.</p>
+        )}
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
+import { useEffect, useState } from "react"
 import {
   Brain,
   AudioLines,
@@ -12,6 +13,7 @@ import {
   Download,
   ArrowRight,
   Check,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -19,12 +21,12 @@ import { Badge } from "@/components/ui/badge"
 import { ScoreRing } from "@/components/score-ring"
 import { ReportRadar } from "@/components/report/radar"
 import { MetricBar } from "@/components/report/metric-bar"
-import { reportBreakdown, feedback } from "@/lib/mock-data"
+import { api, type InterviewResponse, type ReportResponse } from "@/lib/api"
 
 const sectionMeta = [
-  { key: "answermind", name: "AnswerMind", tagline: "Language & reasoning", icon: Brain, data: reportBreakdown.answermind },
-  { key: "speechiq", name: "SpeechIQ", tagline: "Voice & delivery", icon: AudioLines, data: reportBreakdown.speechiq },
-  { key: "visionnet", name: "VisionNet", tagline: "Visual engagement", icon: ScanFace, data: reportBreakdown.visionnet },
+  { key: "answermind", name: "AnswerMind", tagline: "Language & reasoning", icon: Brain },
+  { key: "speechiq", name: "SpeechIQ", tagline: "Voice & delivery", icon: AudioLines },
+  { key: "visionnet", name: "VisionNet", tagline: "Visual engagement", icon: ScanFace },
 ] as const
 
 function GlassCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -33,20 +35,85 @@ function GlassCard({ children, className = "" }: { children: React.ReactNode; cl
   )
 }
 
-export function ReportView() {
+export function ReportView({ interviewId }: { interviewId: string | null }) {
+  const [report, setReport] = useState<ReportResponse | null>(null)
+  const [interview, setInterview] = useState<InterviewResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!interviewId) {
+      setError("No interview was selected. Open a completed interview to view its report.")
+      setLoading(false)
+      return
+    }
+
+    const currentInterviewId = interviewId
+    let cancelled = false
+
+    async function loadReport() {
+      try {
+        const [reportData, interviewData] = await Promise.all([
+          api.report(currentInterviewId),
+          api.interview(currentInterviewId),
+        ])
+
+        if (!cancelled) {
+          setReport(reportData)
+          setInterview(interviewData)
+        }
+      } catch (caughtError: unknown) {
+        if (!cancelled) {
+          setError(caughtError instanceof Error ? caughtError.message : "Unable to load this report.")
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void loadReport()
+
+    return () => {
+      cancelled = true
+    }
+  }, [interviewId])
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error || !report) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <p className="max-w-md text-center text-sm text-muted-foreground" role="alert">
+          {error ?? "This report is not available yet."}
+        </p>
+      </div>
+    )
+  }
+
+  const isPending = report.status === "pending"
+  const createdAt = new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
+    new Date(report.created_at),
+  )
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <Badge>ML Engineer · Advanced</Badge>
-            <span className="text-sm text-muted-foreground">Jul 2, 2026</span>
+            <Badge>{interview ? `${interview.role_label} · ${interview.difficulty_label}` : "Interview"}</Badge>
+            <span className="text-sm text-muted-foreground">{createdAt}</span>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-balance">Analysis Report</h1>
           <p className="text-sm text-muted-foreground">Multimodal breakdown of your latest session.</p>
         </div>
-        <Button variant="outline" className="gap-2 self-start bg-transparent">
+        <Button variant="outline" className="gap-2 self-start bg-transparent" disabled={isPending}>
           <Download className="size-4" /> Export PDF
         </Button>
       </div>
@@ -55,16 +122,28 @@ export function ReportView() {
       <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
         <GlassCard className="flex flex-col items-center justify-center gap-4 p-8">
           <span className="text-sm font-medium text-muted-foreground">Overall NeuroScore</span>
-          <ScoreRing value={82} size={168} suffix="/ 100" />
+          {report.neuroscore === null ? (
+            <div className="flex size-[168px] items-center justify-center rounded-full border-[10px] border-muted text-sm text-muted-foreground">
+              Pending
+            </div>
+          ) : (
+            <ScoreRing value={report.neuroscore} size={168} suffix="/ 100" />
+          )}
           <div className="flex items-center gap-2 text-sm text-success">
             <Sparkles className="size-4" />
-            <span>Strong readiness — top 18% of candidates</span>
+            <span>{isPending ? "Analysis is still processing" : "Analysis complete"}</span>
           </div>
         </GlassCard>
 
         <GlassCard className="flex flex-col p-6">
           <h2 className="text-sm font-medium text-muted-foreground">Skill Radar</h2>
-          <ReportRadar />
+          {report.radar.length > 0 ? (
+            <ReportRadar data={report.radar} />
+          ) : (
+            <div className="flex h-[280px] items-center justify-center text-sm text-muted-foreground">
+              Radar analysis is pending.
+            </div>
+          )}
         </GlassCard>
       </div>
 
@@ -91,9 +170,12 @@ export function ReportView() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-4">
-                  {section.data.map((m) => (
+                  {report.breakdown[section.key].map((m) => (
                     <MetricBar key={m.label} label={m.label} value={m.value} />
                   ))}
+                  {report.breakdown[section.key].length === 0 && (
+                    <p className="text-sm text-muted-foreground">Analysis pending.</p>
+                  )}
                 </div>
               </GlassCard>
             </motion.div>
@@ -108,21 +190,21 @@ export function ReportView() {
           title="Strengths"
           tone="text-success"
           ring="bg-success/10"
-          items={feedback.strengths}
+          items={report.feedback.strengths}
         />
         <FeedbackCard
           icon={Target}
           title="Areas to Improve"
           tone="text-chart-4"
           ring="bg-chart-4/10"
-          items={feedback.improve}
+          items={report.feedback.improve}
         />
         <FeedbackCard
           icon={Dumbbell}
           title="Recommended Practice"
           tone="text-primary"
           ring="bg-primary/10"
-          items={feedback.practice}
+          items={report.feedback.practice}
         />
       </div>
 
@@ -171,6 +253,9 @@ function FeedbackCard({
           </li>
         ))}
       </ul>
+      {items.length === 0 && (
+        <p className="text-sm text-muted-foreground">Feedback will appear when analysis is complete.</p>
+      )}
     </GlassCard>
   )
 }

@@ -2,11 +2,11 @@
 
 import Link from 'next/link'
 import { ArrowUpRight, TrendingDown, TrendingUp } from 'lucide-react'
-import { recentInterviews, type Interview } from '@/lib/mock-data'
+import type { RecentInterview } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-const difficultyVariant: Record<Interview['difficulty'], 'muted' | 'default' | 'accent'> = {
+const difficultyVariant: Record<RecentInterview['difficulty'], 'muted' | 'default' | 'accent'> = {
   Beginner: 'muted',
   Intermediate: 'default',
   Advanced: 'accent',
@@ -18,7 +18,7 @@ function scoreColor(score: number) {
   return 'text-chart-4'
 }
 
-export function InterviewsTable() {
+export function InterviewsTable({ interviews }: { interviews: RecentInterview[] }) {
   return (
     <div className="rounded-2xl border border-border bg-card/50">
       <div className="flex items-center justify-between p-6 pb-4">
@@ -27,7 +27,7 @@ export function InterviewsTable() {
           <p className="text-sm text-muted-foreground">Your latest AI-analyzed sessions</p>
         </div>
         <Link
-          href="/report"
+          href={interviews[0] ? `/report?interviewId=${encodeURIComponent(interviews[0].id)}` : '/interview/create'}
           className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"
         >
           View all
@@ -47,7 +47,7 @@ export function InterviewsTable() {
             </tr>
           </thead>
           <tbody>
-            {recentInterviews.map((iv) => (
+            {interviews.map((iv) => (
               <tr
                 key={iv.id}
                 className="border-b border-border/60 transition-colors last:border-0 hover:bg-muted/40"
@@ -76,6 +76,13 @@ export function InterviewsTable() {
                 </td>
               </tr>
             ))}
+            {interviews.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">
+                  No analyzed interviews yet.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
@@ -17,9 +17,17 @@ import {
   Flame,
   MessageSquare,
   Layers,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  api,
+  type Difficulty,
+  type ExperienceLevel,
+  type InterviewType,
+  type RoleTrack,
+} from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 type Option = { id: string; label: string; desc: string; icon: LucideIcon }
@@ -109,10 +117,13 @@ const sections = [
 ] as const
 
 export function CreateInterview() {
+  const router = useRouter()
   const [role, setRole] = useState('ml')
   const [exp, setExp] = useState('pro')
   const [diff, setDiff] = useState('intermediate')
   const [type, setType] = useState('technical')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const optionMap = { role: roles, exp: experience, diff: difficulty, type: types }
   const valueMap = { role, exp, diff, type }
@@ -124,6 +135,25 @@ export function CreateInterview() {
     difficulty.find((d) => d.id === diff)?.label,
     types.find((t) => t.id === type)?.label,
   ]
+
+  async function handleCreateInterview() {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const interview = await api.createInterview({
+        role: role as RoleTrack,
+        experience_level: exp as ExperienceLevel,
+        difficulty: diff as Difficulty,
+        interview_type: type as InterviewType,
+      })
+
+      router.push(`/interview?interviewId=${encodeURIComponent(interview.id)}`)
+    } catch (caughtError: unknown) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Unable to create the interview. Please try again.')
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -176,11 +206,20 @@ export function CreateInterview() {
             </div>
           </div>
 
-          <Button size="lg" className="mt-5 h-11 w-full" asChild>
-            <Link href="/interview">
-              Begin Interview
-              <ArrowRight className="size-4" />
-            </Link>
+          {error && (
+            <p className="mt-3 text-sm text-destructive" role="alert" aria-live="polite">
+              {error}
+            </p>
+          )}
+
+          <Button
+            size="lg"
+            className="mt-5 h-11 w-full"
+            onClick={handleCreateInterview}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="size-4 animate-spin" /> : 'Begin Interview'}
+            {!loading && <ArrowRight className="size-4" />}
           </Button>
           <p className="mt-3 text-center text-xs text-muted-foreground">
             Camera and microphone access will be requested.
