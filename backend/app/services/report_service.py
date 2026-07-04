@@ -20,6 +20,13 @@ SPEECH_FIELDS = (
     ("delivery_score", "Delivery"),
 )
 
+VISION_FIELDS = (
+    ("eye_contact_score", "Eye Contact"),
+    ("body_language_score", "Body Language"),
+    ("confidence_score", "Visual Confidence"),
+    ("presence_score", "Presence"),
+)
+
 
 def get_report_for_interview(db: Session, interview_id: str) -> Report | None:
     stmt = select(Report).where(Report.interview_id == interview_id)
@@ -29,6 +36,7 @@ def get_report_for_interview(db: Session, interview_id: str) -> Report | None:
 def populate_answermind_report(report: Report, interview: Interview) -> None:
     analyses: list[dict] = []
     speech_analyses: list[dict] = []
+    vision_analyses: list[dict] = []
     speech_complete = True
 
     for question in interview.questions:
@@ -49,6 +57,10 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
         else:
             speech_complete = False
 
+        vision_analysis = answer.visionnet_analysis
+        if _is_complete_analysis(vision_analysis, VISION_FIELDS):
+            vision_analyses.append(vision_analysis)
+
     if not analyses:
         _set_pending(report)
         return
@@ -65,7 +77,15 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
         if speech_complete and speech_analyses
         else {}
     )
-    all_scores = [*averages.values(), *speech_averages.values()]
+    vision_averages = (
+        {
+            field: round(sum(analysis[field] for analysis in vision_analyses) / len(vision_analyses))
+            for field, _ in VISION_FIELDS
+        }
+        if vision_analyses
+        else {}
+    )
+    all_scores = [*averages.values(), *speech_averages.values(), *vision_averages.values()]
     report.neuroscore = round(sum(all_scores) / len(all_scores))
     report.radar = [
         {"metric": label, "value": averages[field]}
@@ -74,6 +94,10 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
         {"metric": label, "value": speech_averages[field]}
         for field, label in SPEECH_FIELDS
         if field in speech_averages
+    ] + [
+        {"metric": label, "value": vision_averages[field]}
+        for field, label in VISION_FIELDS
+        if field in vision_averages
     ]
     report.breakdown = {
         "answermind": [
@@ -85,15 +109,27 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
             for field, label in SPEECH_FIELDS
             if field in speech_averages
         ],
-        "visionnet": [],
+        "visionnet": [
+            {"label": label, "value": vision_averages[field]}
+            for field, label in VISION_FIELDS
+            if field in vision_averages
+        ],
     }
     report.feedback = {
         "strengths": [
             f"Strong {label.lower()} across interview answers."
             for field, label in SCORE_FIELDS
             if averages[field] >= 75
+        ] + [
+            f"Strong {label.lower()} across interview answers."
+            for field, label in SPEECH_FIELDS
+            if speech_averages.get(field, 0) >= 75
+        ] + [
+            f"Strong {label.lower()} across interview answers."
+            for field, label in VISION_FIELDS
+            if vision_averages.get(field, 0) >= 75
         ],
-        "improve": _unique_feedback([*analyses, *speech_analyses]),
+        "improve": _unique_feedback([*analyses, *speech_analyses, *vision_analyses]),
         "practice": [],
     }
     report.status = "ready"

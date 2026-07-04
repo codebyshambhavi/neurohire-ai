@@ -5,8 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ml_clients.answermind_client import AnswerMindClient, AnswerMindClientError
-from app.ml_clients.schemas import AnswerMindInput, SpeechMindInput
+from app.ml_clients.schemas import AnswerMindInput, SpeechMindInput, VisionMindInput
 from app.ml_clients.speechmind_client import SpeechMindClient, SpeechMindClientError
+from app.ml_clients.visionmind_client import VisionMindClient, VisionMindClientError
 from app.models.answer import Answer
 from app.models.enums import InterviewStatus
 from app.models.interview import Interview
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _answermind_client = AnswerMindClient()
 _speechmind_client = SpeechMindClient()
+_visionmind_client = VisionMindClient()
 
 
 def get_next_unanswered_question(interview: Interview) -> tuple[Question | None, int]:
@@ -73,6 +75,21 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
         except SpeechMindClientError:
             answer.speechiq_analysis = {"status": "failed"}
             logger.warning("SpeechMind analysis failed; answer submission will continue.", exc_info=True)
+
+    if payload.face_detected is not None:
+        try:
+            vision_result = _visionmind_client.analyze(
+                VisionMindInput(
+                    face_detected=payload.face_detected,
+                    eye_contact_ratio=payload.eye_contact_ratio,
+                    posture_score=payload.posture_score,
+                    movement_level=payload.movement_level,
+                )
+            )
+            answer.visionnet_analysis = vision_result.__dict__
+        except VisionMindClientError:
+            answer.visionnet_analysis = {"status": "failed"}
+            logger.warning("VisionMind analysis failed; answer submission will continue.", exc_info=True)
 
     db.commit()
     db.refresh(answer)

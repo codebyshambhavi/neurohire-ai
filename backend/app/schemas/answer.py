@@ -8,6 +8,10 @@ class SubmitAnswerRequest(BaseModel):
     transcript: str | None = Field(default=None, description="Speech-to-text transcript of the response")
     audio_url: str | None = Field(default=None, description="Storage reference to the recorded audio")
     video_url: str | None = Field(default=None, description="Storage reference to the recorded video")
+    face_detected: bool | None = None
+    eye_contact_ratio: float | None = Field(default=None, ge=0, le=1)
+    posture_score: float | None = Field(default=None, ge=0, le=100)
+    movement_level: float | None = Field(default=None, ge=0, le=100)
 
 
 class AnswerOut(BaseModel):

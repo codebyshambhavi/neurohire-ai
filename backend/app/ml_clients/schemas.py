@@ -41,6 +41,23 @@ class SpeechMindResult:
 
 
 @dataclass
+class VisionMindInput:
+    face_detected: bool
+    eye_contact_ratio: float | None = None
+    posture_score: float | None = None
+    movement_level: float | None = None
+
+
+@dataclass
+class VisionMindResult:
+    eye_contact_score: int
+    body_language_score: int
+    confidence_score: int
+    presence_score: int
+    feedback: str
+
+
+@dataclass
 class SpeechIQInput:
     audio_url: str
 

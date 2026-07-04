@@ -56,12 +56,13 @@ def submit_answer(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    analyses = (answer.answermind_analysis, answer.speechiq_analysis)
+    required_analyses = (answer.answermind_analysis, answer.speechiq_analysis)
+    analyses = (*required_analyses, answer.visionnet_analysis)
     analysis_status = (
         "failed"
         if any(analysis and analysis.get("status") == "failed" for analysis in analyses)
         else "analyzed"
-        if all(analysis for analysis in analyses)
+        if all(analysis for analysis in required_analyses)
         else "pending"
     )
     return AnswerOut(
