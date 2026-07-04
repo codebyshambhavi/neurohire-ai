@@ -53,6 +53,43 @@ export type InterviewResponse = {
   question_count: number
 }
 
+export type QuestionResponse = {
+  id: string
+  type: string
+  text: string
+  order_index: number
+}
+
+export type SessionQuestionResponse = {
+  interview_id: string
+  question: QuestionResponse | null
+  question_index: number
+  total_questions: number
+  is_last: boolean
+  is_complete: boolean
+}
+
+export type SubmitAnswerRequest = {
+  question_id: string
+  transcript: string
+}
+
+export type AnswerResponse = {
+  id: string
+  question_id: string
+  transcript: string | null
+  audio_url: string | null
+  video_url: string | null
+  submitted_at: string
+  analysis_status: string
+}
+
+export type FinishSessionResponse = {
+  interview_id: string
+  report_id: string
+  status: string
+}
+
 export type RadarMetric = {
   metric: string
   value: number
@@ -305,6 +342,36 @@ export function interviews(): Promise<InterviewResponse[]> {
   })
 }
 
+export function interview(interviewId: string): Promise<InterviewResponse> {
+  return request<InterviewResponse>(`/api/v1/interviews/${encodeURIComponent(interviewId)}`, {
+    method: 'GET',
+  })
+}
+
+export function sessionQuestion(interviewId: string): Promise<SessionQuestionResponse> {
+  return request<SessionQuestionResponse>(
+    `/api/v1/sessions/${encodeURIComponent(interviewId)}/question`,
+    { method: 'GET' },
+  )
+}
+
+export function submitAnswer(
+  interviewId: string,
+  data: SubmitAnswerRequest,
+): Promise<AnswerResponse> {
+  return request<AnswerResponse, SubmitAnswerRequest>(
+    `/api/v1/sessions/${encodeURIComponent(interviewId)}/answer`,
+    { method: 'POST', body: data },
+  )
+}
+
+export function finishSession(interviewId: string): Promise<FinishSessionResponse> {
+  return request<FinishSessionResponse>(
+    `/api/v1/sessions/${encodeURIComponent(interviewId)}/finish`,
+    { method: 'POST' },
+  )
+}
+
 export function report(interviewId: string): Promise<ReportResponse> {
   return request<ReportResponse>(`/api/v1/reports/${encodeURIComponent(interviewId)}`, {
     method: 'GET',
@@ -324,6 +391,10 @@ export const api = {
   me,
   createInterview,
   interviews,
+  interview,
+  sessionQuestion,
+  submitAnswer,
+  finishSession,
   report,
   dashboard,
 }

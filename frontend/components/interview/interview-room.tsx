@@ -14,11 +14,13 @@ import {
   Loader2,
   Radio,
 } from 'lucide-react'
-import { interviewQuestions, liveSignals } from '@/lib/mock-data'
+import { liveSignals } from '@/lib/mock-data'
 import { Waveform } from '@/components/interview/waveform'
 import { NeuralViz } from '@/components/neural-viz'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { api, type InterviewResponse, type SessionQuestionResponse } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 type Phase = 'asking' | 'listening' | 'analyzing'
@@ -30,11 +32,15 @@ const toneClass: Record<string, string> = {
   chart4: 'bg-chart-4',
 }
 
-export function InterviewRoom() {
+export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
 
-  const [index, setIndex] = useState(0)
+  const [session, setSession] = useState<SessionQuestionResponse | null>(null)
+  const [interview, setInterview] = useState<InterviewResponse | null>(null)
+  const [answer, setAnswer] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('asking')
   const [micOn, setMicOn] = useState(true)
   const [camOn, setCamOn] = useState(true)
@@ -42,8 +48,53 @@ export function InterviewRoom() {
   const [camReady, setCamReady] = useState(false)
   const [camError, setCamError] = useState(false)
 
-  const question = interviewQuestions[index]
-  const isLast = index === interviewQuestions.length - 1
+  const question = session?.question ?? null
+  const index = session?.question_index ?? 0
+  const totalQuestions = session?.total_questions ?? 0
+  const isLast = session?.is_last ?? false
+
+  useEffect(() => {
+    if (!interviewId) {
+      setError('No interview was selected. Start a new interview to continue.')
+      setLoading(false)
+      return
+    }
+
+    const currentInterviewId = interviewId
+    let cancelled = false
+
+    async function loadSession() {
+      try {
+        const [interviewData, sessionData] = await Promise.all([
+          api.interview(currentInterviewId),
+          api.sessionQuestion(currentInterviewId),
+        ])
+
+        if (cancelled) return
+
+        if (sessionData.is_complete) {
+          await api.finishSession(currentInterviewId)
+          router.replace(`/report?interviewId=${encodeURIComponent(currentInterviewId)}`)
+          return
+        }
+
+        setInterview(interviewData)
+        setSession(sessionData)
+      } catch (caughtError: unknown) {
+        if (!cancelled) {
+          setError(caughtError instanceof Error ? caughtError.message : 'Unable to load the interview session.')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void loadSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [interviewId, router])
 
   // Camera
   useEffect(() => {
@@ -79,20 +130,67 @@ export function InterviewRoom() {
     }
   }, [phase, index])
 
-  const advance = useCallback(() => {
+  const finishAndNavigate = useCallback(async () => {
+    if (!interviewId) return
+
     setPhase('analyzing')
-    setTimeout(() => {
+    setError(null)
+
+    try {
+      await api.finishSession(interviewId)
+      router.push(`/report?interviewId=${encodeURIComponent(interviewId)}`)
+    } catch (caughtError: unknown) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Unable to finish the interview.')
+      setPhase('listening')
+    }
+  }, [interviewId, router])
+
+  const advance = useCallback(async () => {
+    if (!interviewId || !question || !answer.trim()) return
+
+    setPhase('analyzing')
+    setError(null)
+
+    try {
+      await api.submitAnswer(interviewId, {
+        question_id: question.id,
+        transcript: answer.trim(),
+      })
+
+      await new Promise((resolve) => setTimeout(resolve, 1800))
+
       if (isLast) {
-        router.push('/report')
-      } else {
-        setIndex((i) => i + 1)
-        setPhase('asking')
+        await api.finishSession(interviewId)
+        router.push(`/report?interviewId=${encodeURIComponent(interviewId)}`)
+        return
       }
-    }, 1800)
-  }, [isLast, router])
+
+      const nextSession = await api.sessionQuestion(interviewId)
+      setSession(nextSession)
+      setAnswer('')
+      setPhase('asking')
+    } catch (caughtError: unknown) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Unable to submit your answer.')
+      setPhase('listening')
+    }
+  }, [answer, interviewId, isLast, question, router])
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
+
+  if (loading || !question) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        {loading ? (
+          <Loader2 className="size-6 animate-spin text-primary" />
+        ) : (
+          <p className="max-w-md text-center text-sm text-destructive" role="alert">
+            {error ?? 'No interview question is available.'}
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -108,11 +206,11 @@ export function InterviewRoom() {
           </span>
         </div>
         <Badge variant="muted">
-          Question {index + 1} of {interviewQuestions.length}
+          Question {index + 1} of {totalQuestions}
         </Badge>
         <div className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
           <Sparkles className="size-4 text-primary" />
-          ML Engineer · Intermediate
+          {interview?.role_label} · {interview?.difficulty_label}
         </div>
       </header>
 
@@ -120,7 +218,7 @@ export function InterviewRoom() {
       <div className="h-1 w-full bg-muted">
         <motion.div
           className="h-full bg-primary"
-          animate={{ width: `${((index + 1) / interviewQuestions.length) * 100}%` }}
+          animate={{ width: `${((index + 1) / totalQuestions) * 100}%` }}
           transition={{ duration: 0.5 }}
         />
       </div>
@@ -263,6 +361,21 @@ export function InterviewRoom() {
             </div>
           </div>
 
+          <div className="rounded-2xl border border-border bg-card/50 p-3">
+            <Input
+              value={answer}
+              onChange={(event) => setAnswer(event.target.value)}
+              placeholder="Type your answer before continuing..."
+              disabled={phase !== 'listening'}
+              aria-label="Interview answer"
+            />
+            {error && (
+              <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                {error}
+              </p>
+            )}
+          </div>
+
           {/* Controls */}
           <div className="flex items-center justify-between gap-2 rounded-2xl border border-border bg-card/50 p-3">
             <div className="flex gap-2">
@@ -285,7 +398,7 @@ export function InterviewRoom() {
             <div className="flex gap-2">
               <Button
                 onClick={advance}
-                disabled={phase !== 'listening'}
+                disabled={phase !== 'listening' || !answer.trim()}
                 size="lg"
                 className="h-11"
               >
@@ -294,7 +407,8 @@ export function InterviewRoom() {
               </Button>
               <button
                 type="button"
-                onClick={() => router.push('/report')}
+                onClick={finishAndNavigate}
+                disabled={phase === 'analyzing'}
                 className="flex size-11 items-center justify-center rounded-lg bg-destructive text-destructive-foreground transition-opacity hover:opacity-90"
                 aria-label="End interview"
               >
