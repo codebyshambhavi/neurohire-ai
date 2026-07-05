@@ -72,6 +72,7 @@ export type SessionQuestionResponse = {
 export type SubmitAnswerRequest = {
   question_id: string
   transcript: string
+  duration_seconds?: number
   face_detected?: boolean
 }
 

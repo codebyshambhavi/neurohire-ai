@@ -69,7 +69,7 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
 
         try:
             speech_result = _speechmind_client.analyze(
-                SpeechMindInput(transcript=payload.transcript, duration_seconds=None)
+                SpeechMindInput(transcript=payload.transcript, duration_seconds=payload.duration_seconds)
             )
             answer.speechiq_analysis = speech_result.__dict__
         except SpeechMindClientError as exc:

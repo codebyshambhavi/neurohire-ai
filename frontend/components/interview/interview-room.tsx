@@ -25,6 +25,41 @@ import { cn } from '@/lib/utils'
 
 type Phase = 'asking' | 'listening' | 'analyzing'
 
+type SpeechRecognitionAlternativeLike = {
+  transcript: string
+}
+
+type SpeechRecognitionResultLike = {
+  isFinal: boolean
+  length: number
+  [index: number]: SpeechRecognitionAlternativeLike
+}
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number
+  results: {
+    length: number
+    [index: number]: SpeechRecognitionResultLike
+  }
+}
+
+type SpeechRecognitionLike = {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onstart: (() => void) | null
+  onend: (() => void) | null
+  onerror: ((event: { error?: string }) => void) | null
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  start: () => void
+  stop: () => void
+}
+
+type BrowserWindow = Window & {
+  SpeechRecognition?: new () => SpeechRecognitionLike
+  webkitSpeechRecognition?: new () => SpeechRecognitionLike
+}
+
 const toneClass: Record<string, string> = {
   primary: 'bg-primary',
   accent: 'bg-accent',
@@ -35,6 +70,13 @@ const toneClass: Record<string, string> = {
 export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const finalTranscriptRef = useRef('')
+  const speakingStartedAtRef = useRef<number | null>(null)
+  const speakingDurationMsRef = useRef(0)
+  const phaseRef = useRef<Phase>('asking')
+  const micOnRef = useRef(true)
+  const speechListeningRef = useRef(false)
 
   const [session, setSession] = useState<SessionQuestionResponse | null>(null)
   const [interview, setInterview] = useState<InterviewResponse | null>(null)
@@ -47,11 +89,55 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
   const [elapsed, setElapsed] = useState(0)
   const [camReady, setCamReady] = useState(false)
   const [camError, setCamError] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [speechListening, setSpeechListening] = useState(false)
+  const [speechError, setSpeechError] = useState<string | null>(null)
 
   const question = session?.question ?? null
   const index = session?.question_index ?? 0
   const totalQuestions = session?.total_questions ?? 0
   const isLast = session?.is_last ?? false
+
+  const closeSpeakingSegment = useCallback(() => {
+    if (speakingStartedAtRef.current === null) return
+    speakingDurationMsRef.current += Date.now() - speakingStartedAtRef.current
+    speakingStartedAtRef.current = null
+  }, [])
+
+  const startRecognition = useCallback(() => {
+    const recognition = recognitionRef.current
+    if (!recognition) return
+
+    try {
+      recognition.start()
+    } catch {
+      // Ignore duplicate start calls while recognition is already active.
+    }
+  }, [])
+
+  const stopRecognition = useCallback(() => {
+    const recognition = recognitionRef.current
+    if (!recognition) return
+
+    try {
+      recognition.stop()
+    } catch {
+      // Ignore stop errors if recognition is already stopped.
+    }
+  }, [])
+
+  useEffect(() => {
+    phaseRef.current = phase
+  }, [phase])
+
+  useEffect(() => {
+    micOnRef.current = micOn
+  }, [micOn])
+
+  useEffect(() => {
+    speechListeningRef.current = speechListening
+  }, [speechListening])
 
   useEffect(() => {
     if (!interviewId) {
@@ -96,6 +182,66 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
     }
   }, [interviewId, router])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const browserWindow = window as BrowserWindow
+    const Recognition = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition
+    if (!Recognition) {
+      setSpeechSupported(false)
+      return
+    }
+
+    const recognition = new Recognition()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+    recognition.onstart = () => {
+      setIsRecording(true)
+      setSpeechError(null)
+      speakingStartedAtRef.current = Date.now()
+    }
+    recognition.onend = () => {
+      closeSpeakingSegment()
+      setIsRecording(false)
+      if (speechListeningRef.current && phaseRef.current === 'listening' && micOnRef.current) {
+        startRecognition()
+      }
+    }
+    recognition.onerror = (event) => {
+      closeSpeakingSegment()
+      setIsRecording(false)
+      setSpeechError(event.error ? `Speech recognition error: ${event.error}` : 'Speech recognition error.')
+    }
+    recognition.onresult = (event) => {
+      let finalText = finalTranscriptRef.current
+      let interimText = ''
+
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i]
+        const transcript = result[0]?.transcript?.trim() ?? ''
+        if (!transcript) continue
+
+        if (result.isFinal) {
+          finalText = [finalText, transcript].filter(Boolean).join(' ').trim()
+        } else {
+          interimText = [interimText, transcript].filter(Boolean).join(' ').trim()
+        }
+      }
+
+      finalTranscriptRef.current = finalText
+      setAnswer([finalText, interimText].filter(Boolean).join(' ').trim())
+    }
+
+    recognitionRef.current = recognition
+    setSpeechSupported(true)
+
+    return () => {
+      stopRecognition()
+      recognitionRef.current = null
+    }
+  }, [closeSpeakingSegment, startRecognition, stopRecognition])
+
   // Camera
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -130,9 +276,49 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
     }
   }, [phase, index])
 
+  useEffect(() => {
+    if (phase === 'listening') {
+      return
+    }
+
+    if (speechListeningRef.current) {
+      setSpeechListening(false)
+    }
+    if (isRecording) {
+      stopRecognition()
+    }
+    closeSpeakingSegment()
+  }, [closeSpeakingSegment, isRecording, phase, stopRecognition])
+
+  const startSpeaking = useCallback(() => {
+    if (!speechSupported || !micOn || phase !== 'listening') {
+      return
+    }
+
+    finalTranscriptRef.current = answer.trim()
+    setSpeechListening(true)
+    setSpeechError(null)
+    startRecognition()
+  }, [answer, micOn, phase, speechSupported, startRecognition])
+
+  const stopSpeaking = useCallback(() => {
+    setSpeechListening(false)
+    stopRecognition()
+    closeSpeakingSegment()
+  }, [closeSpeakingSegment, stopRecognition])
+
+  useEffect(() => {
+    stopSpeaking()
+    finalTranscriptRef.current = ''
+    speakingDurationMsRef.current = 0
+    speakingStartedAtRef.current = null
+    setSpeechError(null)
+  }, [question?.id, stopSpeaking])
+
   const finishAndNavigate = useCallback(async () => {
     if (!interviewId) return
 
+    stopSpeaking()
     setPhase('analyzing')
     setError(null)
 
@@ -143,10 +329,15 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
       setError(caughtError instanceof Error ? caughtError.message : 'Unable to finish the interview.')
       setPhase('listening')
     }
-  }, [interviewId, router])
+  }, [interviewId, router, stopSpeaking])
 
   const advance = useCallback(async () => {
     if (!interviewId || !question || !answer.trim()) return
+
+    stopSpeaking()
+    closeSpeakingSegment()
+    const durationSecondsRaw = speakingDurationMsRef.current / 1000
+    const durationSeconds = Number(durationSecondsRaw.toFixed(2))
 
     setPhase('analyzing')
     setError(null)
@@ -155,6 +346,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
       await api.submitAnswer(interviewId, {
         question_id: question.id,
         transcript: answer.trim(),
+        duration_seconds: durationSeconds > 0 ? durationSeconds : undefined,
         face_detected: camOn && camReady && !camError,
       })
 
@@ -174,7 +366,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
       setError(caughtError instanceof Error ? caughtError.message : 'Unable to submit your answer.')
       setPhase('listening')
     }
-  }, [answer, camError, camOn, camReady, interviewId, isLast, question, router])
+  }, [answer, camError, camOn, camReady, closeSpeakingSegment, interviewId, isLast, question, router, stopSpeaking])
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
@@ -370,9 +562,52 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
               disabled={phase !== 'listening'}
               aria-label="Interview answer"
             />
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={startSpeaking}
+                disabled={!speechSupported || !micOn || phase !== 'listening' || speechListening}
+                className="h-8"
+              >
+                Start Answer
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={stopSpeaking}
+                disabled={!speechListening}
+                className="h-8"
+              >
+                Finish Answer
+              </Button>
+              {speechListening && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-success" aria-live="polite">
+                  <span className="size-2 animate-pulse rounded-full bg-success" />
+                  Listening...
+                </span>
+              )}
+            </div>
             {error && (
               <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
                 {error}
+              </p>
+            )}
+            {!speechSupported && (
+              <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+                Voice input is unavailable in this browser. You can continue with typed answers.
+              </p>
+            )}
+            {speechSupported && micOn && phase === 'listening' && speechListening && (
+              <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+                {isRecording ? 'Listening for live transcript...' : 'Initializing microphone...'}
+              </p>
+            )}
+            {speechError && (
+              <p className="mt-2 text-xs text-destructive" role="alert" aria-live="polite">
+                {speechError}
               </p>
             )}
           </div>

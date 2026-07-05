@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class SubmitAnswerRequest(BaseModel):
     question_id: str
     transcript: str | None = Field(default=None, description="Speech-to-text transcript of the response")
+    duration_seconds: float | None = Field(default=None, ge=0, description="Measured speaking duration in seconds")
     audio_url: str | None = Field(default=None, description="Storage reference to the recorded audio")
     video_url: str | None = Field(default=None, description="Storage reference to the recorded video")
     face_detected: bool | None = None
