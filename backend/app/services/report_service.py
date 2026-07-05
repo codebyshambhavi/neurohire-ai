@@ -136,12 +136,26 @@ def populate_answermind_report(report: Report, interview: Interview) -> None:
 
 
 def _is_complete_analysis(analysis: dict | None, fields: tuple[tuple[str, str], ...]) -> bool:
-    if not isinstance(analysis, dict) or analysis.get("status") == "failed":
+    if not isinstance(analysis, dict):
         return False
-    return all(
-        isinstance(analysis.get(field), int) and 0 <= analysis[field] <= 100
-        for field, _ in fields
-    ) and isinstance(analysis.get("feedback"), str)
+
+    if analysis.get("status") == "failed":
+        return False
+
+    required_fields = [field for field, _ in fields]
+    if any(field not in analysis or analysis[field] is None for field in required_fields):
+        return False
+
+    if "feedback" not in analysis or analysis["feedback"] is None:
+        return False
+
+    scores_are_valid = all(
+        isinstance(analysis[field], int)
+        and not isinstance(analysis[field], bool)
+        and 0 <= analysis[field] <= 100
+        for field in required_fields
+    )
+    return scores_are_valid and isinstance(analysis.get("feedback"), str)
 
 
 def _unique_feedback(analyses: list[dict]) -> list[str]:

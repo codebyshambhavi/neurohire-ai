@@ -12,7 +12,9 @@ class SpeechMindClientError(RuntimeError):
 class SpeechMindClient(BaseMLClient):
     def __init__(self, base_url: str | None = None, timeout_seconds: int | None = None) -> None:
         self.base_url = (base_url or settings.ML_ENGINE_URL).rstrip("/")
-        self.timeout_seconds = timeout_seconds or settings.ML_ENGINE_TIMEOUT_SECONDS
+        self.timeout_seconds = (
+            timeout_seconds if timeout_seconds is not None else settings.ML_ENGINE_TIMEOUT_SECONDS
+        )
 
     def analyze(self, payload: SpeechMindInput) -> SpeechMindResult:
         try:
@@ -34,7 +36,7 @@ class SpeechMindClient(BaseMLClient):
                 feedback=_feedback(data),
             )
         except (httpx.HTTPError, TypeError, ValueError, KeyError) as exc:
-            raise SpeechMindClientError("SpeechMind analysis request failed") from exc
+            raise SpeechMindClientError(f"SpeechMind analysis request failed: {exc}") from exc
 
 
 def _score(data: object, field: str) -> int:

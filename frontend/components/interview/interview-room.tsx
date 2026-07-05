@@ -155,6 +155,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
       await api.submitAnswer(interviewId, {
         question_id: question.id,
         transcript: answer.trim(),
+        face_detected: camOn && camReady && !camError,
       })
 
       await new Promise((resolve) => setTimeout(resolve, 1800))
@@ -173,7 +174,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
       setError(caughtError instanceof Error ? caughtError.message : 'Unable to submit your answer.')
       setPhase('listening')
     }
-  }, [answer, interviewId, isLast, question, router])
+  }, [answer, camError, camOn, camReady, interviewId, isLast, question, router])
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')

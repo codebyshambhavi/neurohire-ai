@@ -72,12 +72,14 @@ export type SessionQuestionResponse = {
 export type SubmitAnswerRequest = {
   question_id: string
   transcript: string
+  face_detected?: boolean
 }
 
 export type AnswerResponse = {
   id: string
   question_id: string
   transcript: string | null
+  face_detected?: boolean
   audio_url: string | null
   video_url: string | null
   submitted_at: string

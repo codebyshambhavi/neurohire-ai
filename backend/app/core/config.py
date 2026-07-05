@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # --- ML Engine ---
     ML_ENGINE_URL: str = "http://127.0.0.1:8001"
-    ML_ENGINE_TIMEOUT_SECONDS: int = 30
+    ML_ENGINE_TIMEOUT_SECONDS: int = 120
 
     @property
     def cors_origins(self) -> list[str]:

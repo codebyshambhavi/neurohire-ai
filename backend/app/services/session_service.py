@@ -63,8 +63,8 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
                 )
             )
             answer.answermind_analysis = result.__dict__
-        except AnswerMindClientError:
-            answer.answermind_analysis = {"status": "failed"}
+        except AnswerMindClientError as exc:
+            answer.answermind_analysis = {"status": "failed", "error": str(exc)}
             logger.warning("AnswerMind analysis failed; answer submission will continue.", exc_info=True)
 
         try:
@@ -72,8 +72,8 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
                 SpeechMindInput(transcript=payload.transcript, duration_seconds=None)
             )
             answer.speechiq_analysis = speech_result.__dict__
-        except SpeechMindClientError:
-            answer.speechiq_analysis = {"status": "failed"}
+        except SpeechMindClientError as exc:
+            answer.speechiq_analysis = {"status": "failed", "error": str(exc)}
             logger.warning("SpeechMind analysis failed; answer submission will continue.", exc_info=True)
 
     if payload.face_detected is not None:
@@ -87,8 +87,8 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
                 )
             )
             answer.visionnet_analysis = vision_result.__dict__
-        except VisionMindClientError:
-            answer.visionnet_analysis = {"status": "failed"}
+        except VisionMindClientError as exc:
+            answer.visionnet_analysis = {"status": "failed", "error": str(exc)}
             logger.warning("VisionMind analysis failed; answer submission will continue.", exc_info=True)
 
     db.commit()
