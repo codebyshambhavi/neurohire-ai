@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 
 from sqlalchemy import select
@@ -33,6 +34,53 @@ def get_next_unanswered_question(interview: Interview) -> tuple[Question | None,
     return None, len(ordered)
 
 
+def _run_answermind(question_text: str, question_type: str, transcript: str) -> dict:
+    try:
+        result = _answermind_client.analyze(
+            AnswerMindInput(
+                question_text=question_text,
+                question_type=question_type,
+                transcript=transcript,
+            )
+        )
+        return result.__dict__
+    except AnswerMindClientError as exc:
+        logger.warning("AnswerMind analysis failed; answer submission will continue.", exc_info=True)
+        return {"status": "failed", "error": str(exc)}
+
+
+def _run_speechmind(transcript: str, duration_seconds: float | None) -> dict:
+    try:
+        speech_result = _speechmind_client.analyze(
+            SpeechMindInput(transcript=transcript, duration_seconds=duration_seconds)
+        )
+        return speech_result.__dict__
+    except SpeechMindClientError as exc:
+        logger.warning("SpeechMind analysis failed; answer submission will continue.", exc_info=True)
+        return {"status": "failed", "error": str(exc)}
+
+
+def _run_visionmind(
+    face_detected: bool,
+    eye_contact_ratio: float | None,
+    posture_score: float | None,
+    movement_level: float | None,
+) -> dict:
+    try:
+        vision_result = _visionmind_client.analyze(
+            VisionMindInput(
+                face_detected=face_detected,
+                eye_contact_ratio=eye_contact_ratio,
+                posture_score=posture_score,
+                movement_level=movement_level,
+            )
+        )
+        return vision_result.__dict__
+    except VisionMindClientError as exc:
+        logger.warning("VisionMind analysis failed; answer submission will continue.", exc_info=True)
+        return {"status": "failed", "error": str(exc)}
+
+
 def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerRequest) -> Answer:
     question = db.get(Question, payload.question_id)
     if question is None or question.interview_id != interview.id:
@@ -52,44 +100,36 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
     )
     db.add(answer)
 
+    # Extract primitives before spawning threads: `question` is a SQLAlchemy
+    # ORM object bound to this request's Session and must not be touched from
+    # worker threads. `payload` values are copied out for the same reason.
+    question_text = question.text
+    question_type = question.type.value
+    transcript = payload.transcript
+    duration_seconds = payload.duration_seconds
+    face_detected = payload.face_detected
+    eye_contact_ratio = payload.eye_contact_ratio
+    posture_score = payload.posture_score
+    movement_level = payload.movement_level
+
     # Analysis failures are stored as status metadata and never roll back the answer.
-    if payload.transcript:
-        try:
-            result = _answermind_client.analyze(
-                AnswerMindInput(
-                    question_text=question.text,
-                    question_type=question.type.value,
-                    transcript=payload.transcript,
-                )
-            )
-            answer.answermind_analysis = result.__dict__
-        except AnswerMindClientError as exc:
-            answer.answermind_analysis = {"status": "failed", "error": str(exc)}
-            logger.warning("AnswerMind analysis failed; answer submission will continue.", exc_info=True)
+    futures: dict[str, Future] = {}
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        if transcript:
+            futures["answermind"] = executor.submit(_run_answermind, question_text, question_type, transcript)
+            futures["speechiq"] = executor.submit(_run_speechmind, transcript, duration_seconds)
 
-        try:
-            speech_result = _speechmind_client.analyze(
-                SpeechMindInput(transcript=payload.transcript, duration_seconds=payload.duration_seconds)
+        if face_detected is not None:
+            futures["visionnet"] = executor.submit(
+                _run_visionmind, face_detected, eye_contact_ratio, posture_score, movement_level
             )
-            answer.speechiq_analysis = speech_result.__dict__
-        except SpeechMindClientError as exc:
-            answer.speechiq_analysis = {"status": "failed", "error": str(exc)}
-            logger.warning("SpeechMind analysis failed; answer submission will continue.", exc_info=True)
 
-    if payload.face_detected is not None:
-        try:
-            vision_result = _visionmind_client.analyze(
-                VisionMindInput(
-                    face_detected=payload.face_detected,
-                    eye_contact_ratio=payload.eye_contact_ratio,
-                    posture_score=payload.posture_score,
-                    movement_level=payload.movement_level,
-                )
-            )
-            answer.visionnet_analysis = vision_result.__dict__
-        except VisionMindClientError as exc:
-            answer.visionnet_analysis = {"status": "failed", "error": str(exc)}
-            logger.warning("VisionMind analysis failed; answer submission will continue.", exc_info=True)
+        if "answermind" in futures:
+            answer.answermind_analysis = futures["answermind"].result()
+        if "speechiq" in futures:
+            answer.speechiq_analysis = futures["speechiq"].result()
+        if "visionnet" in futures:
+            answer.visionnet_analysis = futures["visionnet"].result()
 
     db.commit()
     db.refresh(answer)
