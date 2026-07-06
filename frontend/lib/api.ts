@@ -74,6 +74,9 @@ export type SubmitAnswerRequest = {
   transcript: string
   duration_seconds?: number
   face_detected?: boolean
+  eye_contact_ratio?: number
+  posture_score?: number
+  movement_level?: number
 }
 
 export type AnswerResponse = {

@@ -191,6 +191,7 @@ export function ReportView({ interviewId }: { interviewId: string | null }) {
           tone="text-success"
           ring="bg-success/10"
           items={report.feedback.strengths}
+          isPending={isPending}
         />
         <FeedbackCard
           icon={Target}
@@ -198,6 +199,7 @@ export function ReportView({ interviewId }: { interviewId: string | null }) {
           tone="text-chart-4"
           ring="bg-chart-4/10"
           items={report.feedback.improve}
+          isPending={isPending}
         />
         <FeedbackCard
           icon={Dumbbell}
@@ -205,6 +207,7 @@ export function ReportView({ interviewId }: { interviewId: string | null }) {
           tone="text-primary"
           ring="bg-primary/10"
           items={report.feedback.practice}
+          isPending={isPending}
         />
       </div>
 
@@ -230,12 +233,14 @@ function FeedbackCard({
   tone,
   ring,
   items,
+  isPending,
 }: {
   icon: typeof ThumbsUp
   title: string
   tone: string
   ring: string
   items: string[]
+  isPending: boolean
 }) {
   return (
     <GlassCard className="flex flex-col gap-4 p-6">
@@ -254,7 +259,9 @@ function FeedbackCard({
         ))}
       </ul>
       {items.length === 0 && (
-        <p className="text-sm text-muted-foreground">Feedback will appear when analysis is complete.</p>
+        <p className="text-sm text-muted-foreground">
+          {isPending ? "Feedback will appear when analysis is complete." : "No recommendations were generated for this session."}
+        </p>
       )}
     </GlassCard>
   )

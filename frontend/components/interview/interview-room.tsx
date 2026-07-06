@@ -1,5 +1,18 @@
 'use client'
 
+const originalConsoleError = console.error
+
+console.error = (...args) => {
+  if (
+    typeof args[0] === "string" &&
+    args[0].includes("Created TensorFlow Lite XNNPACK delegate")
+  ) {
+    return
+  }
+
+  originalConsoleError(...args)
+}
+
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -60,6 +73,36 @@ type BrowserWindow = Window & {
   webkitSpeechRecognition?: new () => SpeechRecognitionLike
 }
 
+type NormalizedLandmarkLike = {
+  x: number
+  y: number
+  z?: number
+}
+
+type FaceLandmarkerResultLike = {
+  faceLandmarks?: NormalizedLandmarkLike[][]
+}
+
+type FaceLandmarkerLike = {
+  detectForVideo: (video: HTMLVideoElement, timestampMs: number) => FaceLandmarkerResultLike
+  close: () => void
+}
+
+type VisionAccumulator = {
+  samples: number
+  faceDetectedSamples: number
+  eyeContactSum: number
+  postureSum: number
+  movementSum: number
+}
+
+type VisionSnapshot = {
+  face_detected: boolean
+  eye_contact_ratio: number
+  posture_score: number
+  movement_level: number
+}
+
 const toneClass: Record<string, string> = {
   primary: 'bg-primary',
   accent: 'bg-accent',
@@ -67,10 +110,79 @@ const toneClass: Record<string, string> = {
   chart4: 'bg-chart-4',
 }
 
+const FACE_IDX = {
+  nose: 1,
+  forehead: 10,
+  chin: 152,
+  leftCheek: 234,
+  rightCheek: 454,
+  leftEyeOuter: 33,
+  leftEyeInner: 133,
+  rightEyeInner: 362,
+  rightEyeOuter: 263,
+  leftIrisCenter: 468,
+  rightIrisCenter: 473,
+} as const
+
+function clamp01(value: number): number {
+  if (Number.isNaN(value)) return 0
+  return Math.min(1, Math.max(0, value))
+}
+
+function emptyVisionAccumulator(): VisionAccumulator {
+  return {
+    samples: 0,
+    faceDetectedSamples: 0,
+    eyeContactSum: 0,
+    postureSum: 0,
+    movementSum: 0,
+  }
+}
+
+function roundVision(value: number): number {
+  return Number(clamp01(value).toFixed(4))
+}
+
+let sharedFaceLandmarkerPromise: Promise<FaceLandmarkerLike> | null = null
+
+function resetFaceLandmarker() {
+  sharedFaceLandmarkerPromise = null
+}
+
+async function getSharedFaceLandmarker(): Promise<FaceLandmarkerLike> {
+  if (!sharedFaceLandmarkerPromise) {
+    sharedFaceLandmarkerPromise = (async () => {
+      const vision = await import('@mediapipe/tasks-vision')
+      const resolver = await vision.FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm',
+      )
+      return vision.FaceLandmarker.createFromOptions(resolver, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        },
+        runningMode: 'VIDEO',
+        numFaces: 1,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+      }) as unknown as FaceLandmarkerLike
+    })()
+  }
+  return sharedFaceLandmarkerPromise
+}
+
 export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const faceLandmarkerRef = useRef<FaceLandmarkerLike | null>(null)
+  const visionRafRef = useRef<number | null>(null)
+  const visionProcessingRef = useRef(false)
+  const visionLastVideoTimeRef = useRef(-1)
+  const visionLastTimestampRef = useRef(0)
+  const visionUiUpdateAtRef = useRef(0)
+  const previousNoseRef = useRef<{ x: number; y: number } | null>(null)
+  const visionAccumulatorRef = useRef<VisionAccumulator>(emptyVisionAccumulator())
   const finalTranscriptRef = useRef('')
   const speakingStartedAtRef = useRef<number | null>(null)
   const speakingDurationMsRef = useRef(0)
@@ -93,6 +205,12 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
   const [isRecording, setIsRecording] = useState(false)
   const [speechListening, setSpeechListening] = useState(false)
   const [speechError, setSpeechError] = useState<string | null>(null)
+  const [visionLive, setVisionLive] = useState<VisionSnapshot>({
+    face_detected: false,
+    eye_contact_ratio: 0,
+    posture_score: 0,
+    movement_level: 0,
+  })
 
   const question = session?.question ?? null
   const index = session?.question_index ?? 0
@@ -104,6 +222,100 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
     speakingDurationMsRef.current += Date.now() - speakingStartedAtRef.current
     speakingStartedAtRef.current = null
   }, [])
+
+  const resetVisionTracking = useCallback(() => {
+    visionAccumulatorRef.current = emptyVisionAccumulator()
+    previousNoseRef.current = null
+    visionLastVideoTimeRef.current = -1
+    visionUiUpdateAtRef.current = 0
+    setVisionLive({
+      face_detected: false,
+      eye_contact_ratio: 0,
+      posture_score: 0,
+      movement_level: 0,
+    })
+  }, [])
+
+  const collectVisionSample = useCallback((sample: VisionSnapshot) => {
+    if (phaseRef.current !== 'listening') {
+      return
+    }
+
+    const next = visionAccumulatorRef.current
+
+    next.samples += 1
+
+    if (sample.face_detected) {
+      next.faceDetectedSamples += 1
+    }
+
+    next.eyeContactSum += sample.face_detected
+      ? sample.eye_contact_ratio
+      : 0
+
+    next.postureSum += sample.face_detected
+      ? sample.posture_score
+      : 0
+
+    next.movementSum += sample.movement_level
+
+    visionAccumulatorRef.current = next
+  }, [])
+
+  const updateVisionLive = useCallback((sample: VisionSnapshot) => {
+
+      // reset UI immediately when face disappears
+      if (!sample.face_detected) {
+        setVisionLive({
+          face_detected: false,
+          eye_contact_ratio: 0,
+          posture_score: 0,
+          movement_level: 0,
+        })
+        return
+      }
+
+    if (phaseRef.current !== 'listening') {
+      return
+    }
+
+    const now = performance.now()
+    if (now - visionUiUpdateAtRef.current < 180) {
+      return
+    }
+
+    visionUiUpdateAtRef.current = now
+    setVisionLive(sample)
+  }, [])
+
+  const getVisionSnapshotForSubmit = useCallback((): VisionSnapshot => {
+    if (!camOn || !camReady || camError) {
+      return {
+        face_detected: false,
+        eye_contact_ratio: 0,
+        posture_score: 0,
+        movement_level: 0,
+      }
+    }
+
+    const acc = visionAccumulatorRef.current
+    if (!acc.samples) {
+      return {
+        face_detected: false,
+        eye_contact_ratio: 0,
+        posture_score: 0,
+        movement_level: 0,
+      }
+    }
+
+    const detectedRatio = acc.faceDetectedSamples / acc.samples
+    return {
+      face_detected: detectedRatio >= 0.35,
+      eye_contact_ratio: roundVision(acc.samples ? acc.eyeContactSum / acc.samples : 0),
+      posture_score: roundVision(acc.samples ? acc.postureSum / acc.samples : 0),
+      movement_level: roundVision(acc.movementSum / acc.samples),
+    }
+  }, [camError, camOn, camReady])
 
   const startRecognition = useCallback(() => {
     const recognition = recognitionRef.current
@@ -184,6 +396,180 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
+    if (!camOn || !camReady || camError) {
+      if (visionRafRef.current !== null) {
+        cancelAnimationFrame(visionRafRef.current)
+        visionRafRef.current = null
+      }
+      faceLandmarkerRef.current = null
+      return
+    }
+
+    let disposed = false
+    const frameLoop = () => {
+      if (disposed) return
+
+      const landmarker = faceLandmarkerRef.current
+      const video = videoRef.current
+      if (!landmarker || !video || video.readyState < 2) {
+        visionRafRef.current = requestAnimationFrame(frameLoop)
+        return
+      }
+
+      if (video.currentTime === visionLastVideoTimeRef.current) {
+        visionRafRef.current = requestAnimationFrame(frameLoop)
+        return
+      }
+
+      visionLastVideoTimeRef.current = video.currentTime
+      if (
+        !video ||
+        video.readyState < 2 ||
+        video.videoWidth === 0
+      ) {
+        visionRafRef.current = requestAnimationFrame(frameLoop)
+        return
+      }
+
+      if (!landmarker) {
+        visionRafRef.current = requestAnimationFrame(frameLoop)
+        return
+      }
+
+      let result
+
+      if (visionProcessingRef.current) {
+        visionRafRef.current = requestAnimationFrame(frameLoop)
+        return
+      }
+
+      visionProcessingRef.current = true
+
+      let timestampMs = Math.floor(performance.now())
+
+      if (timestampMs <= visionLastTimestampRef.current) {
+        timestampMs = visionLastTimestampRef.current + 1
+      }
+
+      visionLastTimestampRef.current = timestampMs
+
+      try{
+      result = landmarker.detectForVideo(
+        video,
+        timestampMs
+      )    
+    } catch (error) {
+      console.warn("FaceLandmarker reset:", error)
+
+      resetFaceLandmarker()
+      faceLandmarkerRef.current = null
+
+      visionProcessingRef.current = false
+      visionRafRef.current = requestAnimationFrame(frameLoop)
+
+      return
+    }
+
+      visionProcessingRef.current = false
+
+      const landmarks = result.faceLandmarks?.[0]
+
+      if (!landmarks) {
+        previousNoseRef.current = null
+        const sample = {
+          face_detected: false,
+          eye_contact_ratio: 0,
+          posture_score: 0,
+          movement_level: 0,
+        }
+        updateVisionLive(sample)
+        collectVisionSample(sample)
+        visionRafRef.current = requestAnimationFrame(frameLoop)
+        return
+      }
+
+      const nose = landmarks[FACE_IDX.nose]
+      const forehead = landmarks[FACE_IDX.forehead]
+      const chin = landmarks[FACE_IDX.chin]
+      const leftCheek = landmarks[FACE_IDX.leftCheek]
+      const rightCheek = landmarks[FACE_IDX.rightCheek]
+      const leftEyeOuter = landmarks[FACE_IDX.leftEyeOuter]
+      const leftEyeInner = landmarks[FACE_IDX.leftEyeInner]
+      const rightEyeInner = landmarks[FACE_IDX.rightEyeInner]
+      const rightEyeOuter = landmarks[FACE_IDX.rightEyeOuter]
+      const leftIrisCenter = landmarks[FACE_IDX.leftIrisCenter]
+      const rightIrisCenter = landmarks[FACE_IDX.rightIrisCenter]
+
+      const leftEyeWidth = Math.max(0.0001, Math.abs(leftEyeInner.x - leftEyeOuter.x))
+      const rightEyeWidth = Math.max(0.0001, Math.abs(rightEyeOuter.x - rightEyeInner.x))
+      const leftEyeCenterX = (leftEyeInner.x + leftEyeOuter.x) / 2
+      const rightEyeCenterX = (rightEyeInner.x + rightEyeOuter.x) / 2
+
+      const leftIrisOffset = leftIrisCenter ? Math.abs(leftIrisCenter.x - leftEyeCenterX) / leftEyeWidth : 0.5
+      const rightIrisOffset = rightIrisCenter ? Math.abs(rightIrisCenter.x - rightEyeCenterX) / rightEyeWidth : 0.5
+      const gazeCentering = 1 - clamp01(((leftIrisOffset + rightIrisOffset) / 2 - 0.08) / 0.35)
+
+      const faceWidth = Math.max(0.0001, rightCheek.x - leftCheek.x)
+      const noseRelativeX = (nose.x - leftCheek.x) / faceWidth
+      const yawCentering = 1 - clamp01(Math.abs(noseRelativeX - 0.5) * 2.2)
+
+      const eyeContact = clamp01(gazeCentering * 0.65 + yawCentering * 0.35)
+
+      const faceCenterX = (leftCheek.x + rightCheek.x) / 2
+      const horizontalCenterScore = 1 - clamp01(Math.abs(faceCenterX - 0.5) / 0.45)
+      const verticalFaceCenter = (forehead.y + chin.y) / 2
+      const verticalCenterScore = 1 - clamp01(Math.abs(verticalFaceCenter - 0.48) / 0.4)
+
+      const previousNose = previousNoseRef.current
+      let movementLevel = 0
+      let stabilityScore = 0.85
+      if (previousNose) {
+        const dx = nose.x - previousNose.x
+        const dy = nose.y - previousNose.y
+        const delta = Math.sqrt(dx * dx + dy * dy)
+        movementLevel = clamp01(delta / 0.03)
+        stabilityScore = 1 - clamp01(delta / 0.03)
+      }
+      previousNoseRef.current = { x: nose.x, y: nose.y }
+
+      const postureScore = clamp01(horizontalCenterScore * 0.4 + verticalCenterScore * 0.2 + stabilityScore * 0.4)
+
+      const sample = {
+        face_detected: true,
+        eye_contact_ratio: roundVision(eyeContact),
+        posture_score: roundVision(postureScore),
+        movement_level: roundVision(movementLevel),
+      }
+      updateVisionLive(sample)
+      collectVisionSample(sample)
+
+      visionRafRef.current = requestAnimationFrame(frameLoop)
+    }
+
+    const initFaceTracking = async () => {
+      try {
+        faceLandmarkerRef.current = await getSharedFaceLandmarker()
+        if (disposed) return
+        visionRafRef.current = requestAnimationFrame(frameLoop)
+      } catch {
+        setCamError(true)
+      }
+    }
+
+    void initFaceTracking()
+
+    return () => {
+      disposed = true
+      if (visionRafRef.current !== null) {
+        cancelAnimationFrame(visionRafRef.current)
+        visionRafRef.current = null
+      }
+      faceLandmarkerRef.current = null
+    }
+  }, [camError, camOn, camReady, collectVisionSample, updateVisionLive])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
 
     const browserWindow = window as BrowserWindow
     const Recognition = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition
@@ -247,6 +633,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
     let stream: MediaStream | null = null
     async function start() {
       try {
+        setCamError(false)
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
         if (videoRef.current) {
           videoRef.current.srcObject = stream
@@ -254,13 +641,19 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
         }
       } catch {
         setCamError(true)
+        setCamReady(false)
       }
     }
-    if (camOn) start()
+    if (camOn) {
+      start()
+    } else {
+      setCamReady(false)
+      resetVisionTracking()
+    }
     return () => {
       stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [camOn])
+  }, [camOn, resetVisionTracking])
 
   // Timer
   useEffect(() => {
@@ -313,7 +706,8 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
     speakingDurationMsRef.current = 0
     speakingStartedAtRef.current = null
     setSpeechError(null)
-  }, [question?.id, stopSpeaking])
+    resetVisionTracking()
+  }, [question?.id, resetVisionTracking, stopSpeaking])
 
   const finishAndNavigate = useCallback(async () => {
     if (!interviewId) return
@@ -338,6 +732,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
     closeSpeakingSegment()
     const durationSecondsRaw = speakingDurationMsRef.current / 1000
     const durationSeconds = Number(durationSecondsRaw.toFixed(2))
+    const visionSnapshot = getVisionSnapshotForSubmit()
 
     setPhase('analyzing')
     setError(null)
@@ -347,7 +742,10 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
         question_id: question.id,
         transcript: answer.trim(),
         duration_seconds: durationSeconds > 0 ? durationSeconds : undefined,
-        face_detected: camOn && camReady && !camError,
+        face_detected: visionSnapshot.face_detected,
+        eye_contact_ratio: visionSnapshot.eye_contact_ratio,
+        posture_score: visionSnapshot.posture_score,
+        movement_level: visionSnapshot.movement_level,
       })
 
       await new Promise((resolve) => setTimeout(resolve, 1800))
@@ -366,7 +764,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
       setError(caughtError instanceof Error ? caughtError.message : 'Unable to submit your answer.')
       setPhase('listening')
     }
-  }, [answer, camError, camOn, camReady, closeSpeakingSegment, interviewId, isLast, question, router, stopSpeaking])
+  }, [answer, closeSpeakingSegment, getVisionSnapshotForSubmit, interviewId, isLast, question, router, stopSpeaking])
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
@@ -603,6 +1001,11 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
             {speechSupported && micOn && phase === 'listening' && speechListening && (
               <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
                 {isRecording ? 'Listening for live transcript...' : 'Initializing microphone...'}
+              </p>
+            )}
+            {camOn && camReady && (
+              <p className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+                Vision: face {visionLive.face_detected ? 'detected' : 'not detected'} · eye {Math.round(visionLive.eye_contact_ratio * 100)}% · posture {Math.round(visionLive.posture_score * 100)}% · movement {Math.round(visionLive.movement_level * 100)}%
               </p>
             )}
             {speechError && (
