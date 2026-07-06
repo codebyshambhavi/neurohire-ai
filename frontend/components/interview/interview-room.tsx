@@ -819,7 +819,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
         <div className="relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card/50 lg:col-span-2">
           <div className="relative flex flex-1 flex-col items-center justify-center p-8">
             <div className="pointer-events-none absolute inset-0 opacity-30">
-              <div className="absolute left-1/2 top-1/2 size-[380px] -translate-x-1/2 -translate-y-1/2">
+              <div className="absolute left-1/2 top-1/2 size-95 -translate-x-1/2 -translate-y-1/2">
                 <NeuralViz />
               </div>
             </div>
@@ -846,7 +846,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
             <p className="relative mt-8 text-sm font-medium text-primary">NeuroHire Interviewer</p>
 
             {/* Question */}
-            <div className="relative mt-4 min-h-[7rem] max-w-xl">
+            <div className="relative mt-4 min-h-28 max-w-xl">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={question.id}
@@ -900,7 +900,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
               playsInline
               muted
               className={cn(
-                'size-full object-cover [transform:scaleX(-1)]',
+                'size-full object-cover transform-[scaleX(-1)]',
                 (!camOn || !camReady) && 'hidden',
               )}
             />
