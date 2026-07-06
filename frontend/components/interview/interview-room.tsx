@@ -748,7 +748,7 @@ export function InterviewRoom({ interviewId }: { interviewId: string | null }) {
         movement_level: visionSnapshot.movement_level,
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 1800))
+      await new Promise((resolve) => setTimeout(resolve, 400))
 
       if (isLast) {
         await api.finishSession(interviewId)
