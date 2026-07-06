@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.session import SessionLocal
 from app.ml_clients.answermind_client import AnswerMindClient, AnswerMindClientError
 from app.ml_clients.schemas import AnswerMindInput, SpeechMindInput, VisionMindInput
 from app.ml_clients.speechmind_client import SpeechMindClient, SpeechMindClientError
@@ -82,6 +83,14 @@ def _run_visionmind(
 
 
 def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerRequest) -> Answer:
+    """Validate, persist, and return the Answer immediately.
+
+    ML analysis (AnswerMind/SpeechMind/VisionMind) is intentionally NOT run
+    here — it's dispatched as a FastAPI background task by the route layer
+    (see api/v1/sessions.py) via `analyze_answer_background`, so the client
+    gets an instant response and can advance to the next question without
+    waiting on inference.
+    """
     question = db.get(Question, payload.question_id)
     if question is None or question.interview_id != interview.id:
         raise ValueError("Question does not belong to this interview")
@@ -99,41 +108,62 @@ def submit_answer(db: Session, interview: Interview, payload: SubmitAnswerReques
         submitted_at=datetime.utcnow(),
     )
     db.add(answer)
-
-    # Extract primitives before spawning threads: `question` is a SQLAlchemy
-    # ORM object bound to this request's Session and must not be touched from
-    # worker threads. `payload` values are copied out for the same reason.
-    question_text = question.text
-    question_type = question.type.value
-    transcript = payload.transcript
-    duration_seconds = payload.duration_seconds
-    face_detected = payload.face_detected
-    eye_contact_ratio = payload.eye_contact_ratio
-    posture_score = payload.posture_score
-    movement_level = payload.movement_level
-
-    # Analysis failures are stored as status metadata and never roll back the answer.
-    futures: dict[str, Future] = {}
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        if transcript:
-            futures["answermind"] = executor.submit(_run_answermind, question_text, question_type, transcript)
-            futures["speechiq"] = executor.submit(_run_speechmind, transcript, duration_seconds)
-
-        if face_detected is not None:
-            futures["visionnet"] = executor.submit(
-                _run_visionmind, face_detected, eye_contact_ratio, posture_score, movement_level
-            )
-
-        if "answermind" in futures:
-            answer.answermind_analysis = futures["answermind"].result()
-        if "speechiq" in futures:
-            answer.speechiq_analysis = futures["speechiq"].result()
-        if "visionnet" in futures:
-            answer.visionnet_analysis = futures["visionnet"].result()
-
     db.commit()
     db.refresh(answer)
     return answer
+
+
+def analyze_answer_background(
+    answer_id: str,
+    question_text: str,
+    question_type: str,
+    transcript: str | None,
+    duration_seconds: float | None,
+    face_detected: bool | None,
+    eye_contact_ratio: float | None,
+    posture_score: float | None,
+    movement_level: float | None,
+) -> None:
+    """Runs after the HTTP response for submit_answer has already been sent.
+
+    Must only receive primitives (never SQLAlchemy objects, never the
+    request-scoped Session) because it executes after the request that
+    triggered it has already returned and its `db` session has been closed.
+    Opens and closes its own Session so it's safe to run on FastAPI's
+    background-task thread independent of the request lifecycle.
+    """
+    db = SessionLocal()
+    try:
+        answer = db.get(Answer, answer_id)
+        if answer is None:
+            logger.warning("analyze_answer_background: answer %s no longer exists.", answer_id)
+            return
+
+        # Analysis failures are stored as status metadata and never roll back the answer.
+        futures: dict[str, Future] = {}
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            if transcript:
+                futures["answermind"] = executor.submit(_run_answermind, question_text, question_type, transcript)
+                futures["speechiq"] = executor.submit(_run_speechmind, transcript, duration_seconds)
+
+            if face_detected is not None:
+                futures["visionnet"] = executor.submit(
+                    _run_visionmind, face_detected, eye_contact_ratio, posture_score, movement_level
+                )
+
+            if "answermind" in futures:
+                answer.answermind_analysis = futures["answermind"].result()
+            if "speechiq" in futures:
+                answer.speechiq_analysis = futures["speechiq"].result()
+            if "visionnet" in futures:
+                answer.visionnet_analysis = futures["visionnet"].result()
+
+        db.commit()
+    except Exception:
+        logger.exception("analyze_answer_background: unexpected failure for answer %s", answer_id)
+        db.rollback()
+    finally:
+        db.close()
 
 
 def finish_interview(db: Session, interview: Interview) -> Report:

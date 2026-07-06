@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.enums import InterviewStatus
+from app.models.question import Question
 from app.models.user import User
 from app.schemas.answer import AnswerOut, SubmitAnswerRequest
 from app.schemas.question import QuestionOut
@@ -44,6 +45,7 @@ def get_current_question(
 def submit_answer(
     interview_id: str,
     payload: SubmitAnswerRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AnswerOut:
@@ -55,6 +57,22 @@ def submit_answer(
         answer = session_service.submit_answer(db, interview, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    # `question` is already in this request's identity map (submit_answer just
+    # loaded it), so this is a no-op DB hit — not a second round trip.
+    question = db.get(Question, payload.question_id)
+    background_tasks.add_task(
+        session_service.analyze_answer_background,
+        answer.id,
+        question.text,
+        question.type.value,
+        payload.transcript,
+        payload.duration_seconds,
+        payload.face_detected,
+        payload.eye_contact_ratio,
+        payload.posture_score,
+        payload.movement_level,
+    )
 
     required_analyses = (answer.answermind_analysis, answer.speechiq_analysis)
     analyses = (*required_analyses, answer.visionnet_analysis)
