@@ -110,7 +110,7 @@ export default function DashboardPage() {
             {latestPerformance ? (
               <ScoreRing value={latestPerformance.score} size={168} label="NeuroScore" />
             ) : (
-              <div className="flex size-[168px] items-center justify-center rounded-full border-[10px] border-muted text-sm text-muted-foreground">
+              <div className="flex size-42 items-center justify-center rounded-full border-10 border-muted text-sm text-muted-foreground">
                 No score yet
               </div>
             )}
