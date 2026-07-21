@@ -2,7 +2,7 @@
 
 Multimodal AI interview intelligence — evaluating what candidates say, how they say it, and how they present, in one platform.
 
-[![License](https://img.shields.io/badge/license-unspecified-lightgrey)](#license)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](backend/requirements.txt)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](backend/requirements.txt)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black)](frontend/package.json)

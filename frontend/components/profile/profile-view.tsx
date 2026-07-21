@@ -9,13 +9,14 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { ScoreRing } from '@/components/score-ring'
 import { cn } from '@/lib/utils'
-import { api } from '@/lib/api'
+import { api, type User } from '@/lib/api'
 
 export function ProfileView() {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [dashboard, setDashboard] = useState<any>(null)
 
   const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -34,7 +35,6 @@ export function ProfileView() {
 
         setName(userData.full_name)
         setEmail(userData.email)
-        setRole('Interview Candidate')
       } catch (err) {
         console.error(err)
       }
@@ -43,21 +43,42 @@ export function ProfileView() {
     loadData()
   }, [])
 
+  async function handleSave() {
+    if (!user) return
+
+    try {
+      setSaving(true)
+
+      const updatedUser = await api.updateProfile({
+        full_name: name,
+        target_role: role,
+      })
+
+      setUser(updatedUser)
+      setName(updatedUser.full_name)
+      setEmail(updatedUser.email)
+
+      setEditing(false)
+    } catch (err) {
+      console.error(err)
+      alert('Failed to save profile.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const initials =
     user?.full_name
       ?.split(' ')
-      .map((word: string) => word[0])
+      .map((word) => word[0])
       .join('')
       .toUpperCase() || 'U'
 
-  const latestScore =
-    dashboard?.performance?.at(-1)?.score ?? 0
+  const latestScore = dashboard?.performance?.at(-1)?.score ?? 0
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
       <div className="flex flex-col gap-6">
-
-        {/* Profile Card */}
         <div className="rounded-2xl border border-border bg-card/50 p-6">
           <div className="flex items-center gap-4">
             <div className="flex size-16 items-center justify-center rounded-full bg-primary/15 text-xl font-semibold text-primary ring-1 ring-primary/25">
@@ -74,7 +95,7 @@ export function ProfileView() {
               </p>
 
               <Badge className="mt-2">
-                Free plan
+                Free Plan
               </Badge>
             </div>
           </div>
@@ -87,7 +108,6 @@ export function ProfileView() {
           </div>
         </div>
 
-        {/* NeuroScore */}
         <div className="flex flex-col items-center rounded-2xl border border-border bg-card/50 p-6">
           <h3 className="text-sm font-medium text-muted-foreground">
             Current NeuroScore
@@ -108,12 +128,8 @@ export function ProfileView() {
         </div>
       </div>
 
-      {/* Right Side */}
       <div className="flex flex-col gap-6">
-
-        {/* Account Settings */}
         <div className="rounded-2xl border border-border bg-card/50 p-6">
-
           <h3 className="text-lg font-semibold tracking-tight text-foreground">
             Account settings
           </h3>
@@ -127,7 +143,6 @@ export function ProfileView() {
             onSubmit={(e) => e.preventDefault()}
           >
             <div className="grid gap-4 sm:grid-cols-2">
-
               <div className="flex flex-col gap-2">
                 <Label>Full name</Label>
 
@@ -147,30 +162,26 @@ export function ProfileView() {
                   onChange={(e) => setRole(e.target.value)}
                 />
               </div>
-
             </div>
 
             <div className="flex flex-col gap-2">
               <Label>Email</Label>
 
               <Input
-                type="email"
                 value={email}
-                disabled={!editing}
-                onChange={(e) => setEmail(e.target.value)}
+                disabled
               />
             </div>
 
             <div className="mt-2 flex gap-3">
-
               {editing ? (
                 <>
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => {
-                      setName(user?.full_name || '')
-                      setEmail(user?.email || '')
+                      setName(user?.full_name ?? '')
+                      setEmail(user?.email ?? '')
                       setRole('Interview Candidate')
                       setEditing(false)
                     }}
@@ -180,17 +191,10 @@ export function ProfileView() {
 
                   <Button
                     type="button"
-                    onClick={() => {
-                      setUser({
-                        ...user,
-                        full_name: name,
-                        email,
-                      })
-
-                      setEditing(false)
-                    }}
+                    disabled={saving}
+                    onClick={handleSave}
                   >
-                    Save Changes
+                    {saving ? 'Saving...' : 'Save Changes'}
                   </Button>
                 </>
               ) : (
@@ -201,14 +205,11 @@ export function ProfileView() {
                   Edit
                 </Button>
               )}
-
             </div>
           </form>
         </div>
 
-        {/* Achievements */}
         <div className="rounded-2xl border border-border bg-card/50 p-6">
-
           <div className="flex items-center gap-2">
             <Trophy className="size-5 text-primary" />
 
@@ -238,9 +239,7 @@ export function ProfileView() {
               </li>
             ))}
           </ul>
-
         </div>
-
       </div>
     </div>
   )

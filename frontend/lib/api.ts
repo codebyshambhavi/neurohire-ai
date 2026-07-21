@@ -26,6 +26,11 @@ export type User = {
   created_at: string
 }
 
+export type UpdateProfileRequest = {
+  full_name: string
+  target_role: string
+}
+
 export type RoleTrack = 'swe' | 'ml' | 'da' | 'pm'
 export type ExperienceLevel = 'student' | 'intern' | 'pro'
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced'
@@ -335,6 +340,18 @@ export function me(): Promise<User> {
   })
 }
 
+export function updateProfile(
+  data: UpdateProfileRequest,
+): Promise<User> {
+  return request<User, UpdateProfileRequest>(
+    '/api/v1/auth/me',
+    {
+      method: 'PATCH',
+      body: data,
+    },
+  )
+}
+
 export function createInterview(data: CreateInterviewRequest): Promise<InterviewResponse> {
   return request<InterviewResponse, CreateInterviewRequest>('/api/v1/interviews', {
     method: 'POST',
@@ -395,6 +412,7 @@ export const api = {
   signup,
   login,
   me,
+  updateProfile,
   createInterview,
   interviews,
   interview,

@@ -12,6 +12,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UpdateProfileRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    target_role: str = Field(min_length=1, max_length=255)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
